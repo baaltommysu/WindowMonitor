@@ -8,37 +8,27 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.baaltommysu.windowmonitor.service.CameraCaptureForegroundService
 import java.util.concurrent.TimeUnit
 
 object WorkScheduler {
-    private const val CameraWorkName = "periodic_camera_capture"
+    private const val LegacyCameraWorkName = "periodic_camera_capture"
     private const val ImmediateCameraWorkName = "immediate_camera_capture"
     private const val HeartbeatWorkName = "daily_heartbeat"
     private const val CommandPollingWorkName = "command_polling"
 
-    fun enablePeriodicCapture(context: Context, intervalMinutes: Long = 30) {
-        val request = PeriodicWorkRequestBuilder<CameraWorker>(
-            intervalMinutes.coerceAtLeast(15),
-            TimeUnit.MINUTES
-        ).build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            CameraWorkName,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
+    fun enablePeriodicCapture(context: Context, intervalSeconds: Long = 30) {
+        cancelLegacyCameraWork(context)
+        CameraCaptureForegroundService.startMonitoring(context)
     }
 
     fun disablePeriodicCapture(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(CameraWorkName)
+        cancelLegacyCameraWork(context)
+        CameraCaptureForegroundService.stopMonitoring(context)
     }
 
     fun captureNow(context: Context) {
-        val request = OneTimeWorkRequestBuilder<CameraWorker>().build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            ImmediateCameraWorkName,
-            ExistingWorkPolicy.REPLACE,
-            request
-        )
+        CameraCaptureForegroundService.captureOnce(context)
     }
 
     fun enableHeartbeat(context: Context) {
@@ -63,5 +53,10 @@ object WorkScheduler {
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
+    }
+
+    fun cancelLegacyCameraWork(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(LegacyCameraWorkName)
+        WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
     }
 }

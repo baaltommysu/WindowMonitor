@@ -13,7 +13,7 @@ class CameraWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         return try {
-            CameraCaptureForegroundService.start(applicationContext)
+            CameraCaptureForegroundService.captureOnce(applicationContext)
             Result.success()
         } catch (error: Exception) {
             AppLogger.e(Tag, "could not start camera service", error)

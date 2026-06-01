@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
@@ -19,7 +20,12 @@ import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.util.AppLogger
 import com.baaltommysu.windowmonitor.util.PreferenceStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
 
@@ -27,6 +33,9 @@ class CameraCaptureForegroundService : LifecycleService() {
     private val store by lazy { PreferenceStore(this) }
     private val repository by lazy { PhotoRepository(this) }
     private val cameraManager by lazy { CameraManager(this) }
+    private val captureMutex = Mutex()
+    private var monitorJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -35,29 +44,73 @@ class CameraCaptureForegroundService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        startForeground(NotificationId, buildNotification("Preparing camera capture"))
-        captureAndSend(startId)
-        return Service.START_NOT_STICKY
+        startForeground(NotificationId, buildNotification("Camera monitor is active"))
+
+        when (intent?.action) {
+            ActionStopMonitoring -> stopMonitoring()
+            ActionCaptureOnce -> captureOnce(stopWhenDone = monitorJob == null, startId = startId)
+            else -> startMonitoring()
+        }
+
+        return Service.START_STICKY
     }
 
-    private fun captureAndSend(startId: Int) {
+    override fun onDestroy() {
+        monitorJob?.cancel()
+        releaseWakeLock()
+        super.onDestroy()
+    }
+
+    private fun startMonitoring() {
+        store.monitoringEnabled = true
+        acquireWakeLock()
+        if (monitorJob?.isActive == true) return
+
+        monitorJob = lifecycleScope.launch {
+            while (isActive && store.monitoringEnabled) {
+                runCaptureCycle()
+                delay(CaptureIntervalMillis)
+            }
+            stopSelf()
+        }
+    }
+
+    private fun stopMonitoring() {
+        store.monitoringEnabled = false
+        monitorJob?.cancel()
+        monitorJob = null
+        releaseWakeLock()
+        stopSelf()
+    }
+
+    private fun captureOnce(stopWhenDone: Boolean, startId: Int) {
         lifecycleScope.launch {
+            runCaptureCycle()
+            if (stopWhenDone) {
+                stopSelf(startId)
+            }
+        }
+    }
+
+    private suspend fun runCaptureCycle() {
+        captureMutex.withLock {
             try {
                 if (!hasCameraPermission()) {
                     throw IllegalStateException("Camera permission is not granted")
                 }
+
                 val photo = repository.createPhotoFile()
                 cameraManager.capturePhoto(this@CameraCaptureForegroundService, photo)
                 store.lastPhotoTime = Instant.now().toString()
                 repository.trimCache()
+
                 withContext(Dispatchers.IO) {
                     MailQueue(this@CameraCaptureForegroundService).flushPending()
                 }
+                AppLogger.d(Tag, "capture saved: ${photo.name}")
             } catch (error: Exception) {
                 AppLogger.e(Tag, "capture failed", error)
                 store.markFailure(error.message ?: "Capture failed")
-            } finally {
-                stopSelf(startId)
             }
         }
     }
@@ -65,6 +118,23 @@ class CameraCaptureForegroundService : LifecycleService() {
     private fun hasCameraPermission(): Boolean {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val powerManager = getSystemService(PowerManager::class.java)
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "WindowMonitor:CameraCapture"
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
     }
 
     private fun ensureChannel() {
@@ -89,9 +159,29 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val Tag = "CameraService"
         private const val ChannelId = "camera_capture"
         private const val NotificationId = 1001
+        private const val CaptureIntervalMillis = 30_000L
+        private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
+        private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
+        private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"
 
-        fun start(context: Context) {
-            val intent = Intent(context, CameraCaptureForegroundService::class.java)
+        fun startMonitoring(context: Context) {
+            start(context, ActionStartMonitoring)
+        }
+
+        fun stopMonitoring(context: Context) {
+            context.startService(Intent(context, CameraCaptureForegroundService::class.java).apply {
+                action = ActionStopMonitoring
+            })
+        }
+
+        fun captureOnce(context: Context) {
+            start(context, ActionCaptureOnce)
+        }
+
+        private fun start(context: Context, actionName: String) {
+            val intent = Intent(context, CameraCaptureForegroundService::class.java).apply {
+                action = actionName
+            }
             ContextCompat.startForegroundService(context, intent)
         }
     }

@@ -11,6 +11,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         if (!PreferenceStore(context).monitoringEnabled) return
 
+        WorkScheduler.cancelLegacyCameraWork(context)
         WorkScheduler.enablePeriodicCapture(context)
         WorkScheduler.enableHeartbeat(context)
         WorkScheduler.enableCommandPolling(context)

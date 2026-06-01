@@ -81,6 +81,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshUiState()
+        if (uiState.monitoringEnabled && uiState.cameraPermissionGranted) {
+            WorkScheduler.enablePeriodicCapture(this)
+        }
     }
 
     private fun requestRequiredPermissions() {
@@ -213,7 +216,7 @@ private fun ControlCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Runs roughly every 30 minutes using WorkManager.",
+                        text = "Runs every 30 seconds while the foreground service is active.",
                         color = Color(0xFF475569),
                         style = MaterialTheme.typography.bodyMedium
                     )

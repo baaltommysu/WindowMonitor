@@ -25,6 +25,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -38,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,7 +76,8 @@ class MainActivity : ComponentActivity() {
                     onCaptureNow = {
                         WorkScheduler.captureNow(this)
                         refreshUiState()
-                    }
+                    },
+                    onSaveMailSettings = ::saveMailSettings
                 )
             }
         }
@@ -119,8 +124,29 @@ class MainActivity : ComponentActivity() {
             lastSendTime = store.lastSendTime,
             lastSuccessTime = store.lastSuccessTime,
             lastFailureReason = store.lastFailureReason,
-            pendingPhotoCount = repository.listPendingPhotos().size
+            pendingPhotoCount = repository.listPendingPhotos().size,
+            mailSettings = MailSettings(
+                smtpHost = store.smtpHost,
+                smtpPort = store.smtpPort.toString(),
+                smtpUsername = store.smtpUsername,
+                smtpPassword = store.smtpPassword,
+                mailFrom = store.mailFrom,
+                mailTo = store.mailTo
+            )
         )
+    }
+
+    private fun saveMailSettings(settings: MailSettings) {
+        store.smtpHost = settings.smtpHost.trim()
+        store.smtpPort = settings.smtpPort.toIntOrNull() ?: 587
+        store.smtpUsername = settings.smtpUsername.trim()
+        store.smtpPassword = settings.smtpPassword
+        store.mailFrom = settings.mailFrom.trim().ifBlank { settings.smtpUsername.trim() }
+        store.mailTo = settings.mailTo.trim()
+        if (store.lastFailureReason == "SMTP is not configured" && settings.isConfigured) {
+            store.lastFailureReason = ""
+        }
+        refreshUiState()
     }
 
     private fun isGranted(permission: String): Boolean {
@@ -136,8 +162,26 @@ data class AppUiState(
     val lastSendTime: String = "",
     val lastSuccessTime: String = "",
     val lastFailureReason: String = "",
-    val pendingPhotoCount: Int = 0
+    val pendingPhotoCount: Int = 0,
+    val mailSettings: MailSettings = MailSettings()
 )
+
+data class MailSettings(
+    val smtpHost: String = "smtp.gmail.com",
+    val smtpPort: String = "587",
+    val smtpUsername: String = "",
+    val smtpPassword: String = "",
+    val mailFrom: String = "",
+    val mailTo: String = ""
+) {
+    val isConfigured: Boolean
+        get() = smtpHost.isNotBlank() &&
+            smtpPort.toIntOrNull() != null &&
+            smtpUsername.isNotBlank() &&
+            smtpPassword.isNotBlank() &&
+            mailFrom.isNotBlank() &&
+            mailTo.isNotBlank()
+}
 
 @Composable
 fun WindowMonitorApp(
@@ -145,6 +189,7 @@ fun WindowMonitorApp(
     onRequestPermissions: () -> Unit,
     onToggleMonitoring: (Boolean) -> Unit,
     onCaptureNow: () -> Unit,
+    onSaveMailSettings: (MailSettings) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(modifier = modifier.fillMaxSize(), color = Color(0xFF0B1220)) {
@@ -181,8 +226,108 @@ fun WindowMonitorApp(
                 onCaptureNow = onCaptureNow
             )
 
+            MailSettingsCard(
+                initialSettings = state.mailSettings,
+                onSave = onSaveMailSettings
+            )
+
             StatusCard(state = state)
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun MailSettingsCard(
+    initialSettings: MailSettings,
+    onSave: (MailSettings) -> Unit
+) {
+    var smtpHost by remember(initialSettings) { mutableStateOf(initialSettings.smtpHost) }
+    var smtpPort by remember(initialSettings) { mutableStateOf(initialSettings.smtpPort) }
+    var smtpUsername by remember(initialSettings) { mutableStateOf(initialSettings.smtpUsername) }
+    var smtpPassword by remember(initialSettings) { mutableStateOf(initialSettings.smtpPassword) }
+    var mailFrom by remember(initialSettings) { mutableStateOf(initialSettings.mailFrom) }
+    var mailTo by remember(initialSettings) { mutableStateOf(initialSettings.mailTo) }
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Mail settings",
+                color = Color(0xFF0F172A),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            OutlinedTextField(
+                value = smtpHost,
+                onValueChange = { smtpHost = it },
+                label = { Text("SMTP host") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = smtpPort,
+                onValueChange = { smtpPort = it.filter(Char::isDigit) },
+                label = { Text("Port") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = smtpUsername,
+                onValueChange = {
+                    smtpUsername = it
+                    if (mailFrom.isBlank()) mailFrom = it
+                },
+                label = { Text("SMTP username") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = smtpPassword,
+                onValueChange = { smtpPassword = it },
+                label = { Text("App password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = mailFrom,
+                onValueChange = { mailFrom = it },
+                label = { Text("From") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = mailTo,
+                onValueChange = { mailTo = it },
+                label = { Text("To") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                onClick = {
+                    onSave(
+                        MailSettings(
+                            smtpHost = smtpHost,
+                            smtpPort = smtpPort,
+                            smtpUsername = smtpUsername,
+                            smtpPassword = smtpPassword,
+                            mailFrom = mailFrom,
+                            mailTo = mailTo
+                        )
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Save mail settings")
+            }
         }
     }
 }
@@ -294,7 +439,8 @@ private fun WindowMonitorAppPreview() {
             state = AppUiState(cameraPermissionGranted = true, notificationPermissionGranted = true),
             onRequestPermissions = {},
             onToggleMonitoring = {},
-            onCaptureNow = {}
+            onCaptureNow = {},
+            onSaveMailSettings = {}
         )
     }
 }

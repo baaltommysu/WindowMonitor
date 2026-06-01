@@ -2,10 +2,11 @@ package com.baaltommysu.windowmonitor.mail
 
 import android.content.Context
 import android.util.Base64
+import com.baaltommysu.windowmonitor.storage.PhotoRepository
+import com.baaltommysu.windowmonitor.storage.StoredPhoto
 import com.baaltommysu.windowmonitor.util.DeviceStatus
 import java.io.BufferedReader
 import java.io.BufferedWriter
-import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.Socket
@@ -16,12 +17,12 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 class SmtpSender(private val context: Context) {
-    fun sendCameraReport(config: SmtpConfig, photo: File) {
+    fun sendCameraReport(config: SmtpConfig, photo: StoredPhoto) {
         require(config.isConfigured) { "SMTP is not configured" }
         val snapshot = DeviceStatus.read(context)
         val subject = "Camera Report"
         val body = buildString {
-            appendLine("Capture Time: ${Instant.ofEpochMilli(photo.lastModified())}")
+            appendLine("Capture Time: ${Instant.ofEpochMilli(photo.lastModifiedMillis)}")
             appendLine("Battery: ${snapshot.batteryPercent}%")
             appendLine("Storage Free: ${snapshot.storageFreeBytes} bytes")
         }
@@ -33,7 +34,7 @@ class SmtpSender(private val context: Context) {
         send(config, "Heartbeat Mail", body, attachment = null)
     }
 
-    private fun send(config: SmtpConfig, subject: String, body: String, attachment: File?) {
+    private fun send(config: SmtpConfig, subject: String, body: String, attachment: StoredPhoto?) {
         Socket(config.host, config.port).use { socket ->
             var reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
             var writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
@@ -69,7 +70,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachment: File?
+        attachment: StoredPhoto?
     ): String {
         val boundary = "wm-${UUID.randomUUID()}"
         return buildString {
@@ -90,7 +91,9 @@ class SmtpSender(private val context: Context) {
                 appendLine("Content-Disposition: attachment; filename=\"${attachment.name}\"")
                 appendLine("Content-Transfer-Encoding: base64")
                 appendLine()
-                appendLine(Base64.encodeToString(attachment.readBytes(), Base64.NO_WRAP).chunked(76).joinToString("\r\n"))
+                val bytes = PhotoRepository(context).openPhoto(attachment)?.use { it.readBytes() }
+                    ?: throw IllegalStateException("Could not read photo attachment")
+                appendLine(Base64.encodeToString(bytes, Base64.NO_WRAP).chunked(76).joinToString("\r\n"))
             }
             appendLine("--$boundary--")
         }.replace("\n", "\r\n")

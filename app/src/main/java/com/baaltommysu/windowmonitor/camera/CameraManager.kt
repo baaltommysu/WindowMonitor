@@ -7,13 +7,14 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import java.io.File
+import com.baaltommysu.windowmonitor.storage.CapturedPhoto
+import com.baaltommysu.windowmonitor.storage.PhotoTarget
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 class CameraManager(private val context: Context) {
-    suspend fun capturePhoto(owner: LifecycleOwner, outputFile: File): File {
+    suspend fun capturePhoto(owner: LifecycleOwner, target: PhotoTarget): CapturedPhoto {
         val cameraProvider = context.awaitCameraProvider()
         val imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
@@ -26,7 +27,11 @@ class CameraManager(private val context: Context) {
             imageCapture
         )
 
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(outputFile).build()
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(
+            context.contentResolver,
+            target.collectionUri,
+            target.contentValues
+        ).build()
         return suspendCoroutine { continuation ->
             imageCapture.takePicture(
                 outputOptions,
@@ -34,7 +39,10 @@ class CameraManager(private val context: Context) {
                 object : ImageCapture.OnImageSavedCallback {
                     override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                         cameraProvider.unbindAll()
-                        continuation.resume(outputFile)
+                        val uri = requireNotNull(outputFileResults.savedUri) {
+                            "CameraX did not return saved image Uri"
+                        }
+                        continuation.resume(CapturedPhoto(uri = uri, name = target.name))
                     }
 
                     override fun onError(exception: ImageCaptureException) {

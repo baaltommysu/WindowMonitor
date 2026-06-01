@@ -99,15 +99,16 @@ class CameraCaptureForegroundService : LifecycleService() {
                     throw IllegalStateException("Camera permission is not granted")
                 }
 
-                val photo = repository.createPhotoFile()
-                cameraManager.capturePhoto(this@CameraCaptureForegroundService, photo)
+                val photo = repository.createPhotoTarget()
+                val capturedPhoto = cameraManager.capturePhoto(this@CameraCaptureForegroundService, photo)
+                repository.markPhotoReady(capturedPhoto)
                 store.lastPhotoTime = Instant.now().toString()
                 repository.trimCache()
 
                 withContext(Dispatchers.IO) {
                     MailQueue(this@CameraCaptureForegroundService).flushPending()
                 }
-                AppLogger.d(Tag, "capture saved: ${photo.name}")
+                AppLogger.d(Tag, "capture saved to Pictures/WindowMonitor: ${capturedPhoto.name}")
             } catch (error: Exception) {
                 AppLogger.e(Tag, "capture failed", error)
                 store.markFailure(error.message ?: "Capture failed")

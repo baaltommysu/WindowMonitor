@@ -22,7 +22,7 @@ class MailQueue(private val context: Context) {
             try {
                 store.lastSendTime = Instant.now().toString()
                 sender.sendCameraReport(config, photo)
-                photo.delete()
+                repository.deletePhoto(photo)
                 store.markSuccess()
             } catch (error: Exception) {
                 allSent = false

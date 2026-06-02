@@ -35,10 +35,22 @@ class SmtpSender(private val context: Context) {
     }
 
     private fun send(config: SmtpConfig, subject: String, body: String, attachment: StoredPhoto?) {
-        Socket(config.host, config.port).use { socket ->
-            var reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
-            var writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
+        if (config.port == ImplicitTlsPort) {
+            sendOverImplicitTls(config, subject, body, attachment)
+        } else {
+            sendOverStartTls(config, subject, body, attachment)
+        }
+    }
 
+    private fun sendOverStartTls(
+        config: SmtpConfig,
+        subject: String,
+        body: String,
+        attachment: StoredPhoto?
+    ) {
+        Socket(config.host, config.port).use { socket ->
+            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
+            val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
             expect(reader, 220)
             command(writer, reader, "EHLO android.local", 250)
             command(writer, reader, "STARTTLS", 220)
@@ -47,23 +59,55 @@ class SmtpSender(private val context: Context) {
                 .createSocket(socket, config.host, config.port, true) as SSLSocket
             sslSocket.use { secureSocket ->
                 secureSocket.startHandshake()
-                reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8))
-                writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
-
-                command(writer, reader, "EHLO android.local", 250)
-                command(writer, reader, "AUTH LOGIN", 334)
-                command(writer, reader, config.username.toBase64(), 334)
-                command(writer, reader, config.password.toBase64(), 235)
-                command(writer, reader, "MAIL FROM:<${config.from}>", 250)
-                command(writer, reader, "RCPT TO:<${config.to}>", 250)
-                command(writer, reader, "DATA", 354)
-                writer.write(buildMessage(config, subject, body, attachment))
-                writer.write("\r\n.\r\n")
-                writer.flush()
-                expect(reader, 250)
-                command(writer, reader, "QUIT", 221)
+                sendAuthenticatedMessage(
+                    config = config,
+                    subject = subject,
+                    body = body,
+                    attachment = attachment,
+                    reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8)),
+                    writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
+                )
             }
         }
+    }
+
+    private fun sendOverImplicitTls(
+        config: SmtpConfig,
+        subject: String,
+        body: String,
+        attachment: StoredPhoto?
+    ) {
+        val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+            .createSocket(config.host, config.port) as SSLSocket
+        socket.use { secureSocket ->
+            secureSocket.startHandshake()
+            val reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8))
+            val writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
+            expect(reader, 220)
+            sendAuthenticatedMessage(config, subject, body, attachment, reader, writer)
+        }
+    }
+
+    private fun sendAuthenticatedMessage(
+        config: SmtpConfig,
+        subject: String,
+        body: String,
+        attachment: StoredPhoto?,
+        reader: BufferedReader,
+        writer: BufferedWriter
+    ) {
+        command(writer, reader, "EHLO android.local", 250)
+        command(writer, reader, "AUTH LOGIN", 334)
+        command(writer, reader, config.username.toBase64(), 334)
+        command(writer, reader, config.password.toBase64(), 235)
+        command(writer, reader, "MAIL FROM:<${config.from}>", 250)
+        command(writer, reader, "RCPT TO:<${config.to}>", 250)
+        command(writer, reader, "DATA", 354)
+        writer.write(buildMessage(config, subject, body, attachment))
+        writer.write("\r\n.\r\n")
+        writer.flush()
+        expect(reader, 250)
+        command(writer, reader, "QUIT", 221)
     }
 
     private fun buildMessage(
@@ -128,5 +172,9 @@ class SmtpSender(private val context: Context) {
 
     private fun String.toBase64(): String {
         return Base64.encodeToString(toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
+    }
+
+    companion object {
+        private const val ImplicitTlsPort = 465
     }
 }

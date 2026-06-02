@@ -20,14 +20,31 @@ data class SmtpConfig(
 
     companion object {
         fun from(store: PreferenceStore): SmtpConfig {
+            val host = normalizeHost(store.smtpHost)
             return SmtpConfig(
-                host = store.smtpHost,
-                port = store.smtpPort,
+                host = host,
+                port = normalizePort(host, store.smtpPort),
                 username = store.smtpUsername,
                 password = store.smtpPassword,
                 from = store.mailFrom,
                 to = store.mailTo
             )
+        }
+
+        private fun normalizeHost(host: String): String {
+            return if (host.equals("smtp.sina.com.cn", ignoreCase = true)) {
+                "smtp.sina.com"
+            } else {
+                host
+            }
+        }
+
+        private fun normalizePort(host: String, port: Int): Int {
+            return if (host.contains("sina.com", ignoreCase = true) && port == 587) {
+                465
+            } else {
+                port
+            }
         }
     }
 }

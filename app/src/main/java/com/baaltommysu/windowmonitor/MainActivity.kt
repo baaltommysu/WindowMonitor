@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = PreferenceStore(this)
+        migrateMailSettings()
         enableEdgeToEdge()
         refreshUiState()
         setContent {
@@ -125,6 +126,12 @@ class MainActivity : ComponentActivity() {
             lastSuccessTime = store.lastSuccessTime,
             lastFailureReason = store.lastFailureReason,
             pendingPhotoCount = repository.listPendingPhotos().size,
+            mailConfigured = store.smtpHost.isNotBlank() &&
+                store.smtpPort > 0 &&
+                store.smtpUsername.isNotBlank() &&
+                store.smtpPassword.isNotBlank() &&
+                store.mailFrom.isNotBlank() &&
+                store.mailTo.isNotBlank(),
             mailSettings = MailSettings(
                 smtpHost = store.smtpHost,
                 smtpPort = store.smtpPort.toString(),
@@ -137,8 +144,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveMailSettings(settings: MailSettings) {
-        store.smtpHost = settings.smtpHost.trim()
-        store.smtpPort = settings.smtpPort.toIntOrNull() ?: 587
+        store.smtpHost = normalizeSmtpHost(settings.smtpHost.trim())
+        store.smtpPort = normalizeSmtpPort(store.smtpHost, settings.smtpPort.toIntOrNull() ?: 587)
         store.smtpUsername = settings.smtpUsername.trim()
         store.smtpPassword = settings.smtpPassword
         store.mailFrom = settings.mailFrom.trim().ifBlank { settings.smtpUsername.trim() }
@@ -147,6 +154,33 @@ class MainActivity : ComponentActivity() {
             store.lastFailureReason = ""
         }
         refreshUiState()
+    }
+
+    private fun migrateMailSettings() {
+        val normalizedHost = normalizeSmtpHost(store.smtpHost)
+        if (normalizedHost != store.smtpHost) {
+            store.smtpHost = normalizedHost
+        }
+        val normalizedPort = normalizeSmtpPort(store.smtpHost, store.smtpPort)
+        if (normalizedPort != store.smtpPort) {
+            store.smtpPort = normalizedPort
+        }
+    }
+
+    private fun normalizeSmtpHost(host: String): String {
+        return if (host.equals("smtp.sina.com.cn", ignoreCase = true)) {
+            "smtp.sina.com"
+        } else {
+            host
+        }
+    }
+
+    private fun normalizeSmtpPort(host: String, port: Int): Int {
+        return if (host.contains("sina.com", ignoreCase = true) && port == 587) {
+            465
+        } else {
+            port
+        }
     }
 
     private fun isGranted(permission: String): Boolean {
@@ -163,6 +197,7 @@ data class AppUiState(
     val lastSuccessTime: String = "",
     val lastFailureReason: String = "",
     val pendingPhotoCount: Int = 0,
+    val mailConfigured: Boolean = false,
     val mailSettings: MailSettings = MailSettings()
 )
 
@@ -264,6 +299,23 @@ private fun MailSettingsCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
+            Button(
+                onClick = {
+                    onSave(
+                        MailSettings(
+                            smtpHost = smtpHost,
+                            smtpPort = smtpPort,
+                            smtpUsername = smtpUsername,
+                            smtpPassword = smtpPassword,
+                            mailFrom = mailFrom,
+                            mailTo = mailTo
+                        )
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Save mail settings")
+            }
             OutlinedTextField(
                 value = smtpHost,
                 onValueChange = { smtpHost = it },
@@ -274,7 +326,7 @@ private fun MailSettingsCard(
             OutlinedTextField(
                 value = smtpPort,
                 onValueChange = { smtpPort = it.filter(Char::isDigit) },
-                label = { Text("Port") },
+                label = { Text("Port (465 SSL, 587 STARTTLS)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
@@ -407,6 +459,7 @@ private fun StatusCard(state: AppUiState) {
             )
             StatusRow("Camera", if (state.cameraPermissionGranted) "Granted" else "Required")
             StatusRow("Notifications", if (state.notificationPermissionGranted) "Granted" else "Required")
+            StatusRow("Mail", if (state.mailConfigured) "Configured" else "Required")
             StatusRow("Pending photos", state.pendingPhotoCount.toString())
             StatusRow("Last photo", state.lastPhotoTime.ifBlank { "-" })
             StatusRow("Last send", state.lastSendTime.ifBlank { "-" })

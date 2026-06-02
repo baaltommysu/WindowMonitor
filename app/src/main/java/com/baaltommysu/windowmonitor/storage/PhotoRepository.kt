@@ -58,13 +58,17 @@ class PhotoRepository(private val context: Context) {
         resolver.update(photo.uri, values, null, null)
     }
 
-    fun deletePhoto(photo: StoredPhoto) {
-        resolver.delete(photo.uri, null, null)
+    fun deletePhoto(photo: StoredPhoto): Int {
+        return resolver.delete(photo.uri, null, null)
     }
 
     fun openPhoto(photo: StoredPhoto) = resolver.openInputStream(photo.uri)
 
     fun listPendingPhotos(): List<StoredPhoto> {
+        return listPendingPhotos("${MediaStore.Images.Media.DATE_MODIFIED} DESC")
+    }
+
+    private fun listPendingPhotos(sortOrder: String): List<StoredPhoto> {
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
@@ -79,7 +83,7 @@ class PhotoRepository(private val context: Context) {
             projection,
             selection,
             args,
-            "${MediaStore.Images.Media.DATE_MODIFIED} ASC"
+            sortOrder
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
@@ -106,7 +110,7 @@ class PhotoRepository(private val context: Context) {
     }
 
     fun trimCache(maxFiles: Int = 1000) {
-        val files = listPendingPhotos()
+        val files = listPendingPhotos("${MediaStore.Images.Media.DATE_MODIFIED} ASC")
         if (files.size <= maxFiles) return
         files.take(files.size - maxFiles).forEach { deletePhoto(it) }
     }

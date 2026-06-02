@@ -97,6 +97,9 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.CAMERA)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)
+                add(Manifest.permission.READ_MEDIA_IMAGES)
+            } else {
+                add(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
         }
         permissionLauncher.launch(permissions.toTypedArray())
@@ -120,6 +123,8 @@ class MainActivity : ComponentActivity() {
             cameraPermissionGranted = isGranted(Manifest.permission.CAMERA),
             notificationPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
                 isGranted(Manifest.permission.POST_NOTIFICATIONS),
+            mediaPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                isGranted(Manifest.permission.READ_MEDIA_IMAGES),
             monitoringEnabled = store.monitoringEnabled,
             lastPhotoTime = store.lastPhotoTime,
             lastSendTime = store.lastSendTime,
@@ -191,6 +196,7 @@ class MainActivity : ComponentActivity() {
 data class AppUiState(
     val cameraPermissionGranted: Boolean = false,
     val notificationPermissionGranted: Boolean = false,
+    val mediaPermissionGranted: Boolean = false,
     val monitoringEnabled: Boolean = false,
     val lastPhotoTime: String = "",
     val lastSendTime: String = "",
@@ -459,6 +465,7 @@ private fun StatusCard(state: AppUiState) {
             )
             StatusRow("Camera", if (state.cameraPermissionGranted) "Granted" else "Required")
             StatusRow("Notifications", if (state.notificationPermissionGranted) "Granted" else "Required")
+            StatusRow("Photos", if (state.mediaPermissionGranted) "Granted" else "Required")
             StatusRow("Mail", if (state.mailConfigured) "Configured" else "Required")
             StatusRow("Pending photos", state.pendingPhotoCount.toString())
             StatusRow("Last photo", state.lastPhotoTime.ifBlank { "-" })

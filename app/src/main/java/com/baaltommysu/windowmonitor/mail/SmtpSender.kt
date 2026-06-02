@@ -1,12 +1,16 @@
 package com.baaltommysu.windowmonitor.mail
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Base64
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.storage.StoredPhoto
 import com.baaltommysu.windowmonitor.util.DeviceStatus
+import com.baaltommysu.windowmonitor.util.AppLogger
 import java.io.BufferedReader
 import java.io.BufferedWriter
+import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.Socket
@@ -17,7 +21,7 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 class SmtpSender(private val context: Context) {
-    fun sendCameraReport(config: SmtpConfig, photo: StoredPhoto) {
+    fun sendCameraReport(config: SmtpConfig, photo: StoredPhoto): String {
         require(config.isConfigured) { "SMTP is not configured" }
         val snapshot = DeviceStatus.read(context)
         val subject = "Camera Report"
@@ -26,16 +30,17 @@ class SmtpSender(private val context: Context) {
             appendLine("Battery: ${snapshot.batteryPercent}%")
             appendLine("Storage Free: ${snapshot.storageFreeBytes} bytes")
         }
-        send(config, subject, body, photo)
+        return send(config, subject, body, photo)
     }
 
-    fun sendHeartbeat(config: SmtpConfig, body: String) {
+    fun sendHeartbeat(config: SmtpConfig, body: String): String {
         require(config.isConfigured) { "SMTP is not configured" }
-        send(config, "Heartbeat Mail", body, attachment = null)
+        return send(config, "Heartbeat Mail", body, attachment = null)
     }
 
-    private fun send(config: SmtpConfig, subject: String, body: String, attachment: StoredPhoto?) {
-        if (config.port == ImplicitTlsPort) {
+    private fun send(config: SmtpConfig, subject: String, body: String, attachment: StoredPhoto?): String {
+        AppLogger.d(Tag, "connecting smtp=${config.host}:${config.port} to=${config.to} attachment=${attachment?.name ?: "none"}")
+        return if (config.port == ImplicitTlsPort) {
             sendOverImplicitTls(config, subject, body, attachment)
         } else {
             sendOverStartTls(config, subject, body, attachment)
@@ -47,8 +52,9 @@ class SmtpSender(private val context: Context) {
         subject: String,
         body: String,
         attachment: StoredPhoto?
-    ) {
+    ): String {
         Socket(config.host, config.port).use { socket ->
+            socket.soTimeout = SocketTimeoutMillis
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
             val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
             expect(reader, 220)
@@ -59,7 +65,7 @@ class SmtpSender(private val context: Context) {
                 .createSocket(socket, config.host, config.port, true) as SSLSocket
             sslSocket.use { secureSocket ->
                 secureSocket.startHandshake()
-                sendAuthenticatedMessage(
+                return sendAuthenticatedMessage(
                     config = config,
                     subject = subject,
                     body = body,
@@ -76,15 +82,16 @@ class SmtpSender(private val context: Context) {
         subject: String,
         body: String,
         attachment: StoredPhoto?
-    ) {
+    ): String {
         val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
             .createSocket(config.host, config.port) as SSLSocket
         socket.use { secureSocket ->
+            secureSocket.soTimeout = SocketTimeoutMillis
             secureSocket.startHandshake()
             val reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8))
             val writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
             expect(reader, 220)
-            sendAuthenticatedMessage(config, subject, body, attachment, reader, writer)
+            return sendAuthenticatedMessage(config, subject, body, attachment, reader, writer)
         }
     }
 
@@ -95,7 +102,7 @@ class SmtpSender(private val context: Context) {
         attachment: StoredPhoto?,
         reader: BufferedReader,
         writer: BufferedWriter
-    ) {
+    ): String {
         command(writer, reader, "EHLO android.local", 250)
         command(writer, reader, "AUTH LOGIN", 334)
         command(writer, reader, config.username.toBase64(), 334)
@@ -106,8 +113,10 @@ class SmtpSender(private val context: Context) {
         writer.write(buildMessage(config, subject, body, attachment))
         writer.write("\r\n.\r\n")
         writer.flush()
-        expect(reader, 250)
+        val acceptedResponse = expect(reader, 250)
         command(writer, reader, "QUIT", 221)
+        AppLogger.d(Tag, "smtp accepted message response=${acceptedResponse.joinToString(" | ")}")
+        return acceptedResponse.joinToString(" | ")
     }
 
     private fun buildMessage(
@@ -135,12 +144,65 @@ class SmtpSender(private val context: Context) {
                 appendLine("Content-Disposition: attachment; filename=\"${attachment.name}\"")
                 appendLine("Content-Transfer-Encoding: base64")
                 appendLine()
-                val bytes = PhotoRepository(context).openPhoto(attachment)?.use { it.readBytes() }
-                    ?: throw IllegalStateException("Could not read photo attachment")
+                val bytes = readCompressedAttachment(attachment)
+                AppLogger.d(
+                    Tag,
+                    "prepared attachment=${attachment.name} original=${attachment.sizeBytes} compressed=${bytes.size}"
+                )
                 appendLine(Base64.encodeToString(bytes, Base64.NO_WRAP).chunked(76).joinToString("\r\n"))
             }
             appendLine("--$boundary--")
         }.replace("\n", "\r\n")
+    }
+
+    private fun readCompressedAttachment(photo: StoredPhoto): ByteArray {
+        val repository = PhotoRepository(context)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val boundsStream = repository.openPhoto(photo)
+            ?: throw IllegalStateException("Could not open photo attachment")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Could not read photo dimensions" }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight)
+        }
+        val bitmap = repository.openPhoto(photo)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
+            ?: throw IllegalStateException("Could not decode photo attachment")
+        return bitmap.useCompressedJpeg()
+    }
+
+    private fun Bitmap.useCompressedJpeg(): ByteArray {
+        val scaled = scaleToEmailSize()
+        return try {
+            ByteArrayOutputStream().use { output ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, AttachmentJpegQuality, output)
+                output.toByteArray()
+            }
+        } finally {
+            if (scaled !== this) scaled.recycle()
+            recycle()
+        }
+    }
+
+    private fun Bitmap.scaleToEmailSize(): Bitmap {
+        val longestSide = maxOf(width, height)
+        if (longestSide <= AttachmentMaxSidePx) return this
+        val scale = AttachmentMaxSidePx.toFloat() / longestSide.toFloat()
+        val targetWidth = (width * scale).toInt().coerceAtLeast(1)
+        val targetHeight = (height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+    }
+
+    private fun calculateSampleSize(width: Int, height: Int): Int {
+        var sampleSize = 1
+        var sampledWidth = width
+        var sampledHeight = height
+        while (sampledWidth / 2 >= AttachmentMaxSidePx && sampledHeight / 2 >= AttachmentMaxSidePx) {
+            sampleSize *= 2
+            sampledWidth /= 2
+            sampledHeight /= 2
+        }
+        return sampleSize
     }
 
     private fun command(
@@ -154,10 +216,11 @@ class SmtpSender(private val context: Context) {
         expect(reader, expectedCode)
     }
 
-    private fun expect(reader: BufferedReader, expectedCode: Int) {
+    private fun expect(reader: BufferedReader, expectedCode: Int): List<String> {
         val lines = readResponse(reader)
         val code = lines.firstOrNull()?.take(3)?.toIntOrNull()
         check(code == expectedCode) { "SMTP expected $expectedCode but got ${lines.joinToString(" | ")}" }
+        return lines
     }
 
     private fun readResponse(reader: BufferedReader): List<String> {
@@ -176,5 +239,9 @@ class SmtpSender(private val context: Context) {
 
     companion object {
         private const val ImplicitTlsPort = 465
+        private const val SocketTimeoutMillis = 120_000
+        private const val AttachmentMaxSidePx = 1280
+        private const val AttachmentJpegQuality = 72
+        private const val Tag = "SmtpSender"
     }
 }

@@ -419,7 +419,7 @@ private fun ControlCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Runs every 30 seconds while the foreground service is active.",
+                        text = "Runs every 30 minutes while the foreground service is active.",
                         color = Color(0xFF475569),
                         style = MaterialTheme.typography.bodyMedium
                     )

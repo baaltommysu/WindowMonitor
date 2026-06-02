@@ -160,7 +160,7 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val Tag = "CameraService"
         private const val ChannelId = "camera_capture"
         private const val NotificationId = 1001
-        private const val CaptureIntervalMillis = 30_000L
+        private const val CaptureIntervalMillis = 30 * 60 * 1000L
         private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
         private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
         private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"

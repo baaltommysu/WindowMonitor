@@ -1,6 +1,6 @@
 # WindowMonitor
 
-WindowMonitor is an Android camera monitoring app for local experiments. It runs a foreground camera monitor, captures a photo about every 30 seconds, saves photos into the public Pictures library, and can send pending photos by SMTP after mail settings are configured in the app.
+WindowMonitor is an Android camera monitoring app for local experiments. It runs a foreground camera monitor, captures a photo about every 30 minutes, saves photos into the public Pictures library, and can send pending photos by SMTP after mail settings are configured in the app.
 
 The current target device is Android 14 on vivo X Note.
 

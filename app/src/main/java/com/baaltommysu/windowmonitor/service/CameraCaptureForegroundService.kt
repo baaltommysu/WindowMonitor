@@ -93,6 +93,7 @@ class CameraCaptureForegroundService : LifecycleService() {
     private suspend fun runCaptureCycle() {
         captureMutex.withLock {
             try {
+                store.appendLog("拍照", "开始")
                 if (!hasCameraPermission()) {
                     throw IllegalStateException("Camera permission is not granted")
                 }
@@ -104,9 +105,12 @@ class CameraCaptureForegroundService : LifecycleService() {
                 repository.trimCache()
 
                 AppLogger.d(Tag, "capture saved to Pictures/WindowMonitor: ${capturedPhoto.name}")
+                store.appendLog("拍照", "成功，文件=${capturedPhoto.name}")
             } catch (error: Exception) {
                 AppLogger.e(Tag, "capture failed", error)
-                store.markFailure(error.message ?: "Capture failed")
+                val reason = error.message ?: "Capture failed"
+                store.markFailure(reason)
+                store.appendLog("拍照", "失败，原因=$reason")
             }
         }
     }

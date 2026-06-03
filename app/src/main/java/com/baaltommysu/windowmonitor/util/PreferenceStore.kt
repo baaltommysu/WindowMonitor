@@ -26,6 +26,10 @@ class PreferenceStore(context: Context) {
         get() = prefs.getString(Keys.LastFailureTime, "") ?: ""
         set(value) = prefs.edit().putString(Keys.LastFailureTime, value).apply()
 
+    var operationLog: String
+        get() = prefs.getString(Keys.OperationLog, "") ?: ""
+        set(value) = prefs.edit().putString(Keys.OperationLog, value).apply()
+
     var monitoringEnabled: Boolean
         get() = prefs.getBoolean(Keys.MonitoringEnabled, false)
         set(value) = prefs.edit().putBoolean(Keys.MonitoringEnabled, value).apply()
@@ -76,12 +80,20 @@ class PreferenceStore(context: Context) {
         lastFailureReason = ""
     }
 
+    fun appendLog(action: String, result: String) {
+        val entry = "${Instant.now()} | $action | $result"
+        operationLog = (listOf(entry) + operationLog.lines().filter { it.isNotBlank() })
+            .take(MaxLogLines)
+            .joinToString("\n")
+    }
+
     private object Keys {
         const val LastPhotoTime = "last_photo_time"
         const val LastSendTime = "last_send_time"
         const val LastSuccessTime = "last_success_time"
         const val LastFailureReason = "last_failure_reason"
         const val LastFailureTime = "last_failure_time"
+        const val OperationLog = "operation_log"
         const val MonitoringEnabled = "monitoring_enabled"
         const val MailDeliveryEnabled = "mail_delivery_enabled"
         const val CaptureIntervalMinutes = "capture_interval_minutes"
@@ -92,5 +104,9 @@ class PreferenceStore(context: Context) {
         const val SmtpPassword = "smtp_password"
         const val MailFrom = "mail_from"
         const val MailTo = "mail_to"
+    }
+
+    companion object {
+        private const val MaxLogLines = 80
     }
 }

@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
                     onRequestPermissions = ::requestRequiredPermissions,
                     onToggleMonitoring = ::setMonitoringEnabled,
                     onCaptureNow = {
+                        store.appendLog("手动拍照", "请求开始")
                         WorkScheduler.captureNow(this)
                         refreshUiState()
                     },
@@ -161,7 +162,7 @@ class MainActivity : ComponentActivity() {
     private fun sendEmailNow() {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                MailQueue(this@MainActivity).flushPending()
+                MailQueue(this@MainActivity).flushPending("手动发送邮件")
             }
             refreshUiState()
         }
@@ -184,6 +185,7 @@ class MainActivity : ComponentActivity() {
             lastSuccessTime = store.lastSuccessTime,
             lastFailureReason = store.lastFailureReason,
             lastFailureTime = store.lastFailureTime,
+            operationLog = store.operationLog,
             pendingPhotoCount = repository.listPendingPhotos().size,
             mailConfigured = store.smtpHost.isNotBlank() &&
                 store.smtpPort > 0 &&
@@ -274,6 +276,7 @@ data class AppUiState(
     val lastSuccessTime: String = "",
     val lastFailureReason: String = "",
     val lastFailureTime: String = "",
+    val operationLog: String = "",
     val pendingPhotoCount: Int = 0,
     val mailConfigured: Boolean = false,
     val mailSettings: MailSettings = MailSettings()
@@ -363,6 +366,7 @@ fun WindowMonitorApp(
             )
 
             StatusCard(state = state)
+            OperationLogCard(logText = state.operationLog)
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -647,6 +651,32 @@ private val AppUiState.failureLog: String
     } else {
         "${lastFailureTime.ifBlank { "Unknown time" }} $lastFailureReason"
     }
+
+@Composable
+private fun OperationLogCard(logText: String) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Operation log",
+                color = Color(0xFF0F172A),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = logText,
+                color = Color(0xFF0F172A),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
 
 @Composable
 private fun StatusRow(label: String, value: String) {

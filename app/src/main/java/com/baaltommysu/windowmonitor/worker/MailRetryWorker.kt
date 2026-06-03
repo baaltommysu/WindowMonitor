@@ -12,7 +12,7 @@ class MailRetryWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val store = PreferenceStore(applicationContext)
-        return if (MailQueue(applicationContext).flushPending()) {
+        return if (MailQueue(applicationContext).flushPending("周期发送邮件")) {
             Result.success()
         } else if (store.lastFailureReason.contains("too many message send today", ignoreCase = true)) {
             Result.failure()

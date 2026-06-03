@@ -46,10 +46,15 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.baaltommysu.windowmonitor.mail.MailQueue
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.ui.theme.WindowMonitorTheme
 import com.baaltommysu.windowmonitor.util.PreferenceStore
 import com.baaltommysu.windowmonitor.worker.WorkScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private lateinit var store: PreferenceStore
@@ -81,6 +86,7 @@ class MainActivity : ComponentActivity() {
                     onSaveCaptureInterval = ::saveCaptureInterval,
                     onToggleMailDelivery = ::setMailDeliveryEnabled,
                     onSaveMailInterval = ::saveMailInterval,
+                    onSendEmailNow = ::sendEmailNow,
                     onSaveMailSettings = ::saveMailSettings
                 )
             }
@@ -150,6 +156,15 @@ class MainActivity : ComponentActivity() {
             WorkScheduler.enablePeriodicMail(this)
         }
         refreshUiState()
+    }
+
+    private fun sendEmailNow() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                MailQueue(this@MainActivity).flushPending()
+            }
+            refreshUiState()
+        }
     }
 
     private fun refreshUiState() {
@@ -290,6 +305,7 @@ fun WindowMonitorApp(
     onSaveCaptureInterval: (String) -> Unit,
     onToggleMailDelivery: (Boolean) -> Unit,
     onSaveMailInterval: (String) -> Unit,
+    onSendEmailNow: () -> Unit,
     onSaveMailSettings: (MailSettings) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -337,7 +353,8 @@ fun WindowMonitorApp(
             MailDeliveryCard(
                 state = state,
                 onToggleMailDelivery = onToggleMailDelivery,
-                onSaveMailInterval = onSaveMailInterval
+                onSaveMailInterval = onSaveMailInterval,
+                onSendEmailNow = onSendEmailNow
             )
 
             MailSettingsCard(
@@ -527,7 +544,8 @@ private fun ControlCard(
 private fun MailDeliveryCard(
     state: AppUiState,
     onToggleMailDelivery: (Boolean) -> Unit,
-    onSaveMailInterval: (String) -> Unit
+    onSaveMailInterval: (String) -> Unit,
+    onSendEmailNow: () -> Unit
 ) {
     var mailIntervalMinutes by remember(state.mailIntervalMinutes) {
         mutableStateOf(state.mailIntervalMinutes)
@@ -580,6 +598,14 @@ private fun MailDeliveryCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(text = "Save mail interval")
+            }
+
+            OutlinedButton(
+                onClick = onSendEmailNow,
+                enabled = state.mailConfigured && state.pendingPhotoCount > 0,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Send email")
             }
         }
     }
@@ -648,9 +674,10 @@ private fun WindowMonitorAppPreview() {
 	            onToggleMonitoring = {},
 	            onCaptureNow = {},
 	            onSaveCaptureInterval = {},
-	            onToggleMailDelivery = {},
-	            onSaveMailInterval = {},
-	            onSaveMailSettings = {}
-	        )
+		            onToggleMailDelivery = {},
+		            onSaveMailInterval = {},
+		            onSendEmailNow = {},
+		            onSaveMailSettings = {}
+		        )
     }
 }

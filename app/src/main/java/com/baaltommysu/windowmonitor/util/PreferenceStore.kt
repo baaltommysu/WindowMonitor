@@ -22,16 +22,32 @@ class PreferenceStore(context: Context) {
         get() = prefs.getString(Keys.LastFailureReason, "") ?: ""
         set(value) = prefs.edit().putString(Keys.LastFailureReason, value).apply()
 
+    var lastFailureTime: String
+        get() = prefs.getString(Keys.LastFailureTime, "") ?: ""
+        set(value) = prefs.edit().putString(Keys.LastFailureTime, value).apply()
+
     var monitoringEnabled: Boolean
         get() = prefs.getBoolean(Keys.MonitoringEnabled, false)
         set(value) = prefs.edit().putBoolean(Keys.MonitoringEnabled, value).apply()
 
+    var mailDeliveryEnabled: Boolean
+        get() = prefs.getBoolean(Keys.MailDeliveryEnabled, false)
+        set(value) = prefs.edit().putBoolean(Keys.MailDeliveryEnabled, value).apply()
+
+    var captureIntervalMinutes: Int
+        get() = prefs.getInt(Keys.CaptureIntervalMinutes, 30)
+        set(value) = prefs.edit().putInt(Keys.CaptureIntervalMinutes, value.coerceAtLeast(1)).apply()
+
+    var mailIntervalMinutes: Int
+        get() = prefs.getInt(Keys.MailIntervalMinutes, 120)
+        set(value) = prefs.edit().putInt(Keys.MailIntervalMinutes, value.coerceAtLeast(15)).apply()
+
     var smtpHost: String
-        get() = prefs.getString(Keys.SmtpHost, "smtp.gmail.com") ?: "smtp.gmail.com"
+        get() = prefs.getString(Keys.SmtpHost, "smtp.163.com") ?: "smtp.163.com"
         set(value) = prefs.edit().putString(Keys.SmtpHost, value).apply()
 
     var smtpPort: Int
-        get() = prefs.getInt(Keys.SmtpPort, 587)
+        get() = prefs.getInt(Keys.SmtpPort, 465)
         set(value) = prefs.edit().putInt(Keys.SmtpPort, value).apply()
 
     var smtpUsername: String
@@ -51,6 +67,7 @@ class PreferenceStore(context: Context) {
         set(value) = prefs.edit().putString(Keys.MailTo, value).apply()
 
     fun markFailure(reason: String) {
+        lastFailureTime = Instant.now().toString()
         lastFailureReason = reason
     }
 
@@ -64,7 +81,11 @@ class PreferenceStore(context: Context) {
         const val LastSendTime = "last_send_time"
         const val LastSuccessTime = "last_success_time"
         const val LastFailureReason = "last_failure_reason"
+        const val LastFailureTime = "last_failure_time"
         const val MonitoringEnabled = "monitoring_enabled"
+        const val MailDeliveryEnabled = "mail_delivery_enabled"
+        const val CaptureIntervalMinutes = "capture_interval_minutes"
+        const val MailIntervalMinutes = "mail_interval_minutes"
         const val SmtpHost = "smtp_host"
         const val SmtpPort = "smtp_port"
         const val SmtpUsername = "smtp_username"

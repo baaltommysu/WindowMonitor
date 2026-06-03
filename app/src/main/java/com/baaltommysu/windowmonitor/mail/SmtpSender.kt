@@ -21,29 +21,34 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
 class SmtpSender(private val context: Context) {
-    fun sendCameraReport(config: SmtpConfig, photo: StoredPhoto): String {
+    fun sendCameraReport(config: SmtpConfig, photos: List<StoredPhoto>): String {
         require(config.isConfigured) { "SMTP is not configured" }
+        require(photos.isNotEmpty()) { "No pending photos to send" }
         val snapshot = DeviceStatus.read(context)
-        val subject = "Camera Report"
+        val subject = "Camera Report (${photos.size} photos)"
         val body = buildString {
-            appendLine("Capture Time: ${Instant.ofEpochMilli(photo.lastModifiedMillis)}")
+            appendLine("Photo Count: ${photos.size}")
+            photos.forEachIndexed { index, photo ->
+                appendLine("Photo ${index + 1}: ${photo.name}, ${Instant.ofEpochMilli(photo.lastModifiedMillis)}")
+            }
+            appendLine()
             appendLine("Battery: ${snapshot.batteryPercent}%")
             appendLine("Storage Free: ${snapshot.storageFreeBytes} bytes")
         }
-        return send(config, subject, body, photo)
+        return send(config, subject, body, photos)
     }
 
     fun sendHeartbeat(config: SmtpConfig, body: String): String {
         require(config.isConfigured) { "SMTP is not configured" }
-        return send(config, "Heartbeat Mail", body, attachment = null)
+        return send(config, "Heartbeat Mail", body, attachments = emptyList())
     }
 
-    private fun send(config: SmtpConfig, subject: String, body: String, attachment: StoredPhoto?): String {
-        AppLogger.d(Tag, "connecting smtp=${config.host}:${config.port} to=${config.to} attachment=${attachment?.name ?: "none"}")
+    private fun send(config: SmtpConfig, subject: String, body: String, attachments: List<StoredPhoto>): String {
+        AppLogger.d(Tag, "connecting smtp=${config.host}:${config.port} to=${config.to} attachments=${attachments.size}")
         return if (config.port == ImplicitTlsPort) {
-            sendOverImplicitTls(config, subject, body, attachment)
+            sendOverImplicitTls(config, subject, body, attachments)
         } else {
-            sendOverStartTls(config, subject, body, attachment)
+            sendOverStartTls(config, subject, body, attachments)
         }
     }
 
@@ -51,7 +56,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachment: StoredPhoto?
+        attachments: List<StoredPhoto>
     ): String {
         Socket(config.host, config.port).use { socket ->
             socket.soTimeout = SocketTimeoutMillis
@@ -69,7 +74,7 @@ class SmtpSender(private val context: Context) {
                     config = config,
                     subject = subject,
                     body = body,
-                    attachment = attachment,
+                    attachments = attachments,
                     reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8)),
                     writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
                 )
@@ -81,7 +86,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachment: StoredPhoto?
+        attachments: List<StoredPhoto>
     ): String {
         val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
             .createSocket(config.host, config.port) as SSLSocket
@@ -91,7 +96,7 @@ class SmtpSender(private val context: Context) {
             val reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8))
             val writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
             expect(reader, 220)
-            return sendAuthenticatedMessage(config, subject, body, attachment, reader, writer)
+            return sendAuthenticatedMessage(config, subject, body, attachments, reader, writer)
         }
     }
 
@@ -99,7 +104,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachment: StoredPhoto?,
+        attachments: List<StoredPhoto>,
         reader: BufferedReader,
         writer: BufferedWriter
     ): String {
@@ -110,7 +115,7 @@ class SmtpSender(private val context: Context) {
         command(writer, reader, "MAIL FROM:<${config.from}>", 250)
         command(writer, reader, "RCPT TO:<${config.to}>", 250)
         command(writer, reader, "DATA", 354)
-        writer.write(buildMessage(config, subject, body, attachment))
+        writer.write(buildMessage(config, subject, body, attachments))
         writer.write("\r\n.\r\n")
         writer.flush()
         val acceptedResponse = expect(reader, 250)
@@ -123,7 +128,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachment: StoredPhoto?
+        attachments: List<StoredPhoto>
     ): String {
         val boundary = "wm-${UUID.randomUUID()}"
         return buildString {
@@ -138,7 +143,7 @@ class SmtpSender(private val context: Context) {
             appendLine("Content-Transfer-Encoding: 8bit")
             appendLine()
             appendLine(body)
-            if (attachment != null) {
+            attachments.forEach { attachment ->
                 appendLine("--$boundary")
                 appendLine("Content-Type: image/jpeg; name=\"${attachment.name}\"")
                 appendLine("Content-Disposition: attachment; filename=\"${attachment.name}\"")

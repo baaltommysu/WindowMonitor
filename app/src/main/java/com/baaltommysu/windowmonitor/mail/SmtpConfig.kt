@@ -40,7 +40,10 @@ data class SmtpConfig(
         }
 
         private fun normalizePort(host: String, port: Int): Int {
-            return if (host.contains("sina.com", ignoreCase = true) && port == 587) {
+            return if (
+                (host.contains("sina.com", ignoreCase = true) || host.equals("smtp.163.com", ignoreCase = true)) &&
+                port == 587
+            ) {
                 465
             } else {
                 port

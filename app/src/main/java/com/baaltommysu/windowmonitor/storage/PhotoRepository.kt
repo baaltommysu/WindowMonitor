@@ -68,6 +68,10 @@ class PhotoRepository(private val context: Context) {
         return listPendingPhotos("${MediaStore.Images.Media.DATE_MODIFIED} DESC")
     }
 
+    fun listPendingPhotosOldestFirst(): List<StoredPhoto> {
+        return listPendingPhotos("${MediaStore.Images.Media.DATE_MODIFIED} ASC")
+    }
+
     private fun listPendingPhotos(sortOrder: String): List<StoredPhoto> {
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -110,7 +114,7 @@ class PhotoRepository(private val context: Context) {
     }
 
     fun trimCache(maxFiles: Int = 1000) {
-        val files = listPendingPhotos("${MediaStore.Images.Media.DATE_MODIFIED} ASC")
+        val files = listPendingPhotosOldestFirst()
         if (files.size <= maxFiles) return
         files.take(files.size - maxFiles).forEach { deletePhoto(it) }
     }

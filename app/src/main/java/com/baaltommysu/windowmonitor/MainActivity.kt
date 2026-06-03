@@ -78,6 +78,9 @@ class MainActivity : ComponentActivity() {
                         WorkScheduler.captureNow(this)
                         refreshUiState()
                     },
+                    onSaveCaptureInterval = ::saveCaptureInterval,
+                    onToggleMailDelivery = ::setMailDeliveryEnabled,
+                    onSaveMailInterval = ::saveMailInterval,
                     onSaveMailSettings = ::saveMailSettings
                 )
             }
@@ -89,6 +92,10 @@ class MainActivity : ComponentActivity() {
         refreshUiState()
         if (uiState.monitoringEnabled && uiState.cameraPermissionGranted) {
             WorkScheduler.enablePeriodicCapture(this)
+            WorkScheduler.enableCommandPolling(this)
+        }
+        if (uiState.mailDeliveryEnabled && uiState.mailConfigured) {
+            WorkScheduler.enablePeriodicMail(this)
         }
     }
 
@@ -109,10 +116,38 @@ class MainActivity : ComponentActivity() {
         store.monitoringEnabled = enabled
         if (enabled) {
             WorkScheduler.enablePeriodicCapture(this)
-            WorkScheduler.enableHeartbeat(this)
             WorkScheduler.enableCommandPolling(this)
+            if (store.mailDeliveryEnabled && isMailConfigured()) {
+                WorkScheduler.enablePeriodicMail(this)
+            }
         } else {
             WorkScheduler.disablePeriodicCapture(this)
+        }
+        refreshUiState()
+    }
+
+    private fun setMailDeliveryEnabled(enabled: Boolean) {
+        store.mailDeliveryEnabled = enabled
+        if (enabled && isMailConfigured()) {
+            WorkScheduler.enablePeriodicMail(this)
+        } else {
+            WorkScheduler.disablePeriodicMail(this)
+        }
+        refreshUiState()
+    }
+
+    private fun saveCaptureInterval(minutesText: String) {
+        store.captureIntervalMinutes = minutesText.toIntOrNull() ?: 30
+        if (store.monitoringEnabled) {
+            WorkScheduler.enablePeriodicCapture(this)
+        }
+        refreshUiState()
+    }
+
+    private fun saveMailInterval(minutesText: String) {
+        store.mailIntervalMinutes = minutesText.toIntOrNull() ?: 120
+        if (store.mailDeliveryEnabled && isMailConfigured()) {
+            WorkScheduler.enablePeriodicMail(this)
         }
         refreshUiState()
     }
@@ -126,10 +161,14 @@ class MainActivity : ComponentActivity() {
             mediaPermissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
                 isGranted(Manifest.permission.READ_MEDIA_IMAGES),
             monitoringEnabled = store.monitoringEnabled,
+            mailDeliveryEnabled = store.mailDeliveryEnabled,
+            captureIntervalMinutes = store.captureIntervalMinutes.toString(),
+            mailIntervalMinutes = store.mailIntervalMinutes.toString(),
             lastPhotoTime = store.lastPhotoTime,
             lastSendTime = store.lastSendTime,
             lastSuccessTime = store.lastSuccessTime,
             lastFailureReason = store.lastFailureReason,
+            lastFailureTime = store.lastFailureTime,
             pendingPhotoCount = repository.listPendingPhotos().size,
             mailConfigured = store.smtpHost.isNotBlank() &&
                 store.smtpPort > 0 &&
@@ -158,6 +197,9 @@ class MainActivity : ComponentActivity() {
         if (store.lastFailureReason == "SMTP is not configured" && settings.isConfigured) {
             store.lastFailureReason = ""
         }
+        if (store.mailDeliveryEnabled && isMailConfigured()) {
+            WorkScheduler.enablePeriodicMail(this)
+        }
         refreshUiState()
     }
 
@@ -173,15 +215,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun normalizeSmtpHost(host: String): String {
-        return if (host.equals("smtp.sina.com.cn", ignoreCase = true)) {
-            "smtp.sina.com"
-        } else {
-            host
+        return when {
+            host.equals("smtp.sina.com.cn", ignoreCase = true) -> "smtp.sina.com"
+            else -> host
         }
     }
 
     private fun normalizeSmtpPort(host: String, port: Int): Int {
-        return if (host.contains("sina.com", ignoreCase = true) && port == 587) {
+        return if (
+            (host.contains("sina.com", ignoreCase = true) || host.equals("smtp.163.com", ignoreCase = true)) &&
+            port == 587
+        ) {
             465
         } else {
             port
@@ -191,6 +235,15 @@ class MainActivity : ComponentActivity() {
     private fun isGranted(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
     }
+
+    private fun isMailConfigured(): Boolean {
+        return store.smtpHost.isNotBlank() &&
+            store.smtpPort > 0 &&
+            store.smtpUsername.isNotBlank() &&
+            store.smtpPassword.isNotBlank() &&
+            store.mailFrom.isNotBlank() &&
+            store.mailTo.isNotBlank()
+    }
 }
 
 data class AppUiState(
@@ -198,18 +251,22 @@ data class AppUiState(
     val notificationPermissionGranted: Boolean = false,
     val mediaPermissionGranted: Boolean = false,
     val monitoringEnabled: Boolean = false,
+    val mailDeliveryEnabled: Boolean = false,
+    val captureIntervalMinutes: String = "30",
+    val mailIntervalMinutes: String = "120",
     val lastPhotoTime: String = "",
     val lastSendTime: String = "",
     val lastSuccessTime: String = "",
     val lastFailureReason: String = "",
+    val lastFailureTime: String = "",
     val pendingPhotoCount: Int = 0,
     val mailConfigured: Boolean = false,
     val mailSettings: MailSettings = MailSettings()
 )
 
 data class MailSettings(
-    val smtpHost: String = "smtp.gmail.com",
-    val smtpPort: String = "587",
+    val smtpHost: String = "smtp.163.com",
+    val smtpPort: String = "465",
     val smtpUsername: String = "",
     val smtpPassword: String = "",
     val mailFrom: String = "",
@@ -230,6 +287,9 @@ fun WindowMonitorApp(
     onRequestPermissions: () -> Unit,
     onToggleMonitoring: (Boolean) -> Unit,
     onCaptureNow: () -> Unit,
+    onSaveCaptureInterval: (String) -> Unit,
+    onToggleMailDelivery: (Boolean) -> Unit,
+    onSaveMailInterval: (String) -> Unit,
     onSaveMailSettings: (MailSettings) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -264,7 +324,14 @@ fun WindowMonitorApp(
                 state = state,
                 onRequestPermissions = onRequestPermissions,
                 onToggleMonitoring = onToggleMonitoring,
-                onCaptureNow = onCaptureNow
+                onCaptureNow = onCaptureNow,
+                onSaveCaptureInterval = onSaveCaptureInterval
+            )
+
+            MailDeliveryCard(
+                state = state,
+                onToggleMailDelivery = onToggleMailDelivery,
+                onSaveMailInterval = onSaveMailInterval
             )
 
             MailSettingsCard(
@@ -305,23 +372,6 @@ private fun MailSettingsCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
-            Button(
-                onClick = {
-                    onSave(
-                        MailSettings(
-                            smtpHost = smtpHost,
-                            smtpPort = smtpPort,
-                            smtpUsername = smtpUsername,
-                            smtpPassword = smtpPassword,
-                            mailFrom = mailFrom,
-                            mailTo = mailTo
-                        )
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "Save mail settings")
-            }
             OutlinedTextField(
                 value = smtpHost,
                 onValueChange = { smtpHost = it },
@@ -395,8 +445,13 @@ private fun ControlCard(
     state: AppUiState,
     onRequestPermissions: () -> Unit,
     onToggleMonitoring: (Boolean) -> Unit,
-    onCaptureNow: () -> Unit
+    onCaptureNow: () -> Unit,
+    onSaveCaptureInterval: (String) -> Unit
 ) {
+    var captureIntervalMinutes by remember(state.captureIntervalMinutes) {
+        mutableStateOf(state.captureIntervalMinutes)
+    }
+
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
@@ -418,8 +473,8 @@ private fun ControlCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "Runs every 30 minutes while the foreground service is active.",
+	                    Text(
+                        text = "Runs every ${state.captureIntervalMinutes} minutes while the foreground service is active.",
                         color = Color(0xFF475569),
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -431,6 +486,15 @@ private fun ControlCard(
                 )
             }
 
+            OutlinedTextField(
+                value = captureIntervalMinutes,
+                onValueChange = { captureIntervalMinutes = it.filter(Char::isDigit) },
+                label = { Text("Capture interval minutes") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onRequestPermissions) {
                     Text(text = "Grant access")
@@ -441,6 +505,75 @@ private fun ControlCard(
                 ) {
                     Text(text = "Capture now")
                 }
+            }
+
+            Button(
+                onClick = { onSaveCaptureInterval(captureIntervalMinutes) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Save capture interval")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MailDeliveryCard(
+    state: AppUiState,
+    onToggleMailDelivery: (Boolean) -> Unit,
+    onSaveMailInterval: (String) -> Unit
+) {
+    var mailIntervalMinutes by remember(state.mailIntervalMinutes) {
+        mutableStateOf(state.mailIntervalMinutes)
+    }
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Periodic mail",
+                        color = Color(0xFF0F172A),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Sends up to four pending photos every ${state.mailIntervalMinutes} minutes.",
+                        color = Color(0xFF475569),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                Switch(
+                    checked = state.mailDeliveryEnabled,
+                    onCheckedChange = onToggleMailDelivery
+                )
+            }
+
+            OutlinedTextField(
+                value = mailIntervalMinutes,
+                onValueChange = { mailIntervalMinutes = it.filter(Char::isDigit) },
+                label = { Text("Mail interval minutes") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = { onSaveMailInterval(mailIntervalMinutes) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "Save mail interval")
             }
         }
     }
@@ -468,25 +601,33 @@ private fun StatusCard(state: AppUiState) {
             StatusRow("Photos", if (state.mediaPermissionGranted) "Granted" else "Required")
             StatusRow("Mail", if (state.mailConfigured) "Configured" else "Required")
             StatusRow("Pending photos", state.pendingPhotoCount.toString())
-            StatusRow("Last photo", state.lastPhotoTime.ifBlank { "-" })
-            StatusRow("Last send", state.lastSendTime.ifBlank { "-" })
-            StatusRow("Last success", state.lastSuccessTime.ifBlank { "-" })
-            StatusRow("Last failure", state.lastFailureReason.ifBlank { "-" })
+            StatusRow("Last photo", state.lastPhotoTime)
+            StatusRow("Last send", state.lastSendTime)
+            StatusRow("Last success", state.lastSuccessTime)
+            StatusRow("Last failure", state.failureLog)
         }
     }
 }
 
+private val AppUiState.failureLog: String
+    get() = if (lastFailureReason.isBlank()) {
+        ""
+    } else {
+        "${lastFailureTime.ifBlank { "Unknown time" }} $lastFailureReason"
+    }
+
 @Composable
 private fun StatusRow(label: String, value: String) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(text = label, color = Color(0xFF64748B))
         Text(
             text = value,
             color = Color(0xFF0F172A),
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }
@@ -495,12 +636,15 @@ private fun StatusRow(label: String, value: String) {
 @Composable
 private fun WindowMonitorAppPreview() {
     WindowMonitorTheme {
-        WindowMonitorApp(
-            state = AppUiState(cameraPermissionGranted = true, notificationPermissionGranted = true),
-            onRequestPermissions = {},
-            onToggleMonitoring = {},
-            onCaptureNow = {},
-            onSaveMailSettings = {}
-        )
+	        WindowMonitorApp(
+	            state = AppUiState(cameraPermissionGranted = true, notificationPermissionGranted = true),
+	            onRequestPermissions = {},
+	            onToggleMonitoring = {},
+	            onCaptureNow = {},
+	            onSaveCaptureInterval = {},
+	            onToggleMailDelivery = {},
+	            onSaveMailInterval = {},
+	            onSaveMailSettings = {}
+	        )
     }
 }

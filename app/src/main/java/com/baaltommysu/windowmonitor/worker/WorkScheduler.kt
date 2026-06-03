@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.baaltommysu.windowmonitor.service.CameraCaptureForegroundService
+import com.baaltommysu.windowmonitor.util.PreferenceStore
 import java.util.concurrent.TimeUnit
 
 object WorkScheduler {
@@ -16,8 +17,10 @@ object WorkScheduler {
     private const val ImmediateCameraWorkName = "immediate_camera_capture"
     private const val HeartbeatWorkName = "daily_heartbeat"
     private const val CommandPollingWorkName = "command_polling"
+    private const val PeriodicMailWorkName = "periodic_mail_delivery"
 
-    fun enablePeriodicCapture(context: Context, intervalSeconds: Long = 30) {
+    fun enablePeriodicCapture(context: Context, intervalMinutes: Long? = null) {
+        intervalMinutes?.let { PreferenceStore(context).captureIntervalMinutes = it.toInt() }
         cancelLegacyCameraWork(context)
         CameraCaptureForegroundService.startMonitoring(context)
     }
@@ -25,6 +28,8 @@ object WorkScheduler {
     fun disablePeriodicCapture(context: Context) {
         cancelLegacyCameraWork(context)
         CameraCaptureForegroundService.stopMonitoring(context)
+        disableHeartbeat(context)
+        disableCommandPolling(context)
     }
 
     fun captureNow(context: Context) {
@@ -37,6 +42,21 @@ object WorkScheduler {
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             HeartbeatWorkName,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
+    }
+
+    fun enablePeriodicMail(context: Context, intervalMinutes: Long? = null) {
+        val store = PreferenceStore(context)
+        intervalMinutes?.let { store.mailIntervalMinutes = it.toInt() }
+        val request = PeriodicWorkRequestBuilder<MailRetryWorker>(
+            store.mailIntervalMinutes.coerceAtLeast(15).toLong(),
+            TimeUnit.MINUTES
+        ).setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            PeriodicMailWorkName,
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
@@ -55,8 +75,21 @@ object WorkScheduler {
         )
     }
 
+    fun disableHeartbeat(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(HeartbeatWorkName)
+    }
+
+    fun disableCommandPolling(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(CommandPollingWorkName)
+    }
+
+    fun disablePeriodicMail(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(PeriodicMailWorkName)
+    }
+
     fun cancelLegacyCameraWork(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(LegacyCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
+        WorkManager.getInstance(context).cancelUniqueWork(HeartbeatWorkName)
     }
 }

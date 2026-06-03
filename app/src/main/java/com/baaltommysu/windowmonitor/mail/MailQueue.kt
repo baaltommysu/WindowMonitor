@@ -18,27 +18,29 @@ class MailQueue(private val context: Context) {
             return false
         }
 
-        var allSent = true
-        val pendingPhotos = repository.listPendingPhotos()
+        val pendingPhotos = repository.listPendingPhotosOldestFirst().take(MaxAttachmentsPerMail)
         AppLogger.d(Tag, "flush pending count=${pendingPhotos.size}")
-        for (photo in pendingPhotos) {
-            try {
-                store.lastSendTime = Instant.now().toString()
-                val response = sender.sendCameraReport(config, photo)
-                val deletedRows = repository.deletePhoto(photo)
-                AppLogger.d(Tag, "sent photo=${photo.name} response=$response deleteRows=$deletedRows")
-                store.markSuccess()
-            } catch (error: Exception) {
-                allSent = false
-                AppLogger.e(Tag, "mail send failed photo=${photo.name}", error)
-                store.markFailure(error.message ?: "Mail send failed")
-                break
-            }
+        if (pendingPhotos.isEmpty()) return true
+
+        return try {
+            store.lastSendTime = Instant.now().toString()
+            val response = sender.sendCameraReport(config, pendingPhotos)
+            val deletedRows = pendingPhotos.sumOf { repository.deletePhoto(it) }
+            AppLogger.d(
+                Tag,
+                "sent photos=${pendingPhotos.joinToString { it.name }} response=$response deleteRows=$deletedRows"
+            )
+            store.markSuccess()
+            true
+        } catch (error: Exception) {
+            AppLogger.e(Tag, "mail send failed photos=${pendingPhotos.joinToString { it.name }}", error)
+            store.markFailure(error.message ?: "Mail send failed")
+            false
         }
-        return allSent
     }
 
     companion object {
         private const val Tag = "MailQueue"
+        private const val MaxAttachmentsPerMail = 4
     }
 }

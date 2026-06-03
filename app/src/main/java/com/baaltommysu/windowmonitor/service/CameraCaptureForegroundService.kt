@@ -15,19 +15,17 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.baaltommysu.windowmonitor.R
 import com.baaltommysu.windowmonitor.camera.CameraManager
-import com.baaltommysu.windowmonitor.mail.MailQueue
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.util.AppLogger
 import com.baaltommysu.windowmonitor.util.PreferenceStore
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 class CameraCaptureForegroundService : LifecycleService() {
     private val store by lazy { PreferenceStore(this) }
@@ -69,7 +67,7 @@ class CameraCaptureForegroundService : LifecycleService() {
         monitorJob = lifecycleScope.launch {
             while (isActive && store.monitoringEnabled) {
                 runCaptureCycle()
-                delay(CaptureIntervalMillis)
+                delay(TimeUnit.MINUTES.toMillis(store.captureIntervalMinutes.toLong()))
             }
             stopSelf()
         }
@@ -105,9 +103,6 @@ class CameraCaptureForegroundService : LifecycleService() {
                 store.lastPhotoTime = Instant.now().toString()
                 repository.trimCache()
 
-                withContext(Dispatchers.IO) {
-                    MailQueue(this@CameraCaptureForegroundService).flushPending()
-                }
                 AppLogger.d(Tag, "capture saved to Pictures/WindowMonitor: ${capturedPhoto.name}")
             } catch (error: Exception) {
                 AppLogger.e(Tag, "capture failed", error)
@@ -160,7 +155,6 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val Tag = "CameraService"
         private const val ChannelId = "camera_capture"
         private const val NotificationId = 1001
-        private const val CaptureIntervalMillis = 30 * 60 * 1000L
         private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
         private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
         private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"

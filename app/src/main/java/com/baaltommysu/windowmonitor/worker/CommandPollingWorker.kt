@@ -18,6 +18,9 @@ class CommandPollingWorker(
         command.intervalMinutes?.let {
             PreferenceStore(applicationContext).monitoringEnabled = true
             WorkScheduler.enablePeriodicCapture(applicationContext, it)
+            if (PreferenceStore(applicationContext).mailDeliveryEnabled) {
+                WorkScheduler.enablePeriodicMail(applicationContext)
+            }
         }
         return Result.success()
     }

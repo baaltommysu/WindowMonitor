@@ -1,6 +1,6 @@
 # WindowMonitor
 
-WindowMonitor is an Android camera monitoring app for local experiments. It runs a foreground camera monitor, captures a photo about every 30 minutes, saves photos into the public Pictures library, and can send pending photos by SMTP after mail settings are configured in the app.
+WindowMonitor is an Android camera monitoring app for local experiments. It runs a foreground camera monitor, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
 The current target device is Android 14 on vivo X Note.
 
@@ -8,14 +8,14 @@ The current target device is Android 14 on vivo X Note.
 
 - CameraX photo capture
 - Foreground camera service for Android 14 compatibility
-- 30-second capture loop while monitoring is enabled
+- Configurable capture loop, defaulting to 30 minutes while monitoring is enabled
+- Configurable periodic mail delivery, defaulting to 120 minutes
 - Screen-off capture using a partial wake lock
 - Public photo storage through MediaStore
-- In-app SMTP configuration form
-- SMTP mail sender with image attachments
+- In-app SMTP configuration form, defaulting to 163 SMTP
+- SMTP mail sender with up to four image attachments per message
 - Pending photo retry behavior when mail is not configured or sending fails
 - Boot receiver to restore monitoring after reboot
-- Daily heartbeat worker scaffold
 - Remote command polling and FCM handler placeholders
 
 ## Photo Location
@@ -38,24 +38,24 @@ photo_20260601_224113.jpg
 
 Open the app and scroll to `Mail settings`.
 
-For Gmail SMTP, use:
+For 163 SMTP, use:
 
 ```text
-SMTP host: smtp.gmail.com
-Port: 587
-SMTP username: your Gmail address
-App password: Gmail App Password
-From: your Gmail address
+SMTP host: smtp.163.com
+Port: 465
+SMTP username: your 163 email address
+App password: 163 SMTP authorization code
+From: your 163 email address
 To: destination email address
 ```
 
-Use a Gmail App Password, not the mailbox login password.
+Use a 163 SMTP authorization code, not the mailbox login password.
 
-After saving settings, the app will try to send pending photos after each capture. If sending succeeds, the sent photo is deleted from the pending queue. If sending fails, the photo remains in `Pictures/WindowMonitor` for the next retry.
+After saving settings, enable `Periodic mail` and set the mail interval in minutes. With the default 30-minute capture interval and 120-minute mail interval, the app normally sends one message containing four photos. If sending succeeds, those photos are deleted from the pending queue. If sending fails, the photos remain in `Pictures/WindowMonitor` for the next retry.
 
 ## Runtime Model
 
-The app does not use WorkManager for the 30-second camera interval because Android WorkManager periodic jobs have a 15-minute minimum interval. Instead:
+The app uses a foreground service for the camera loop so it can keep running while the screen is off. Periodic mail delivery uses WorkManager, whose periodic interval has a 15-minute minimum.
 
 ```text
 MainActivity
@@ -63,6 +63,9 @@ MainActivity
   -> CameraCaptureForegroundService
   -> CameraManager
   -> PhotoRepository
+
+WorkManager
+  -> MailRetryWorker
   -> MailQueue
   -> SmtpSender
 ```
@@ -86,6 +89,7 @@ CAMERA
 FOREGROUND_SERVICE
 FOREGROUND_SERVICE_CAMERA
 POST_NOTIFICATIONS
+READ_MEDIA_IMAGES
 WAKE_LOCK
 RECEIVE_BOOT_COMPLETED
 INTERNET
@@ -140,7 +144,7 @@ adb shell run-as com.baaltommysu.windowmonitor cat shared_prefs/window_monitor_s
 View relevant logs:
 
 ```sh
-adb logcat -d -v time | grep -E "WindowMonitor|CameraService|ImageCaptureException|SecurityException"
+adb logcat -d -v time | grep -E "WindowMonitor|CameraService|MailQueue|SmtpSender|ImageCaptureException|SecurityException"
 ```
 
 Check foreground service:
@@ -187,6 +191,6 @@ app/src/main/java/com/baaltommysu/windowmonitor/
 
 - SMTP credentials are stored in app-local preferences for the current prototype.
 - FCM and remote command polling are placeholders.
-- Heartbeat worker exists but depends on completed mail settings.
+- WorkManager periodic mail delivery uses Android's minimum periodic interval, so values below 15 minutes are rounded up.
 - The app is intended for personal testing and non-Play distribution.
 - Long-term camera use may still be affected by vendor power management unless the app is excluded from battery optimization.

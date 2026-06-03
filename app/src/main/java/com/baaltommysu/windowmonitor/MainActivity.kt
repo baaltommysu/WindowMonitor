@@ -307,14 +307,20 @@ fun WindowMonitorApp(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Window Monitor",
-                color = Color.White,
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Periodic camera capture, local cache, mail delivery, boot recovery.",
+	            Text(
+	                text = "Window Monitor",
+	                color = Color.White,
+	                fontSize = 34.sp,
+	                fontWeight = FontWeight.Bold
+	            )
+	            Text(
+	                text = "Version ${BuildConfig.VERSION_NAME}",
+	                color = Color(0xFF7DD3FC),
+	                style = MaterialTheme.typography.titleMedium,
+	                fontWeight = FontWeight.Bold
+	            )
+	            Text(
+	                text = "Periodic camera capture, local cache, mail delivery, boot recovery.",
                 color = Color(0xFFB8C7D9),
                 fontSize = 17.sp,
                 lineHeight = 24.sp

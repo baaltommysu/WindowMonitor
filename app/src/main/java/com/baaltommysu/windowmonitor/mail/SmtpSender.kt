@@ -16,6 +16,8 @@ import java.io.OutputStreamWriter
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -135,6 +137,8 @@ class SmtpSender(private val context: Context) {
             appendLine("From: ${config.from}")
             appendLine("To: ${config.to}")
             appendLine("Subject: $subject")
+            appendLine("Date: ${DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.now().atOffset(ZoneOffset.UTC))}")
+            appendLine("Message-ID: <${UUID.randomUUID()}@windowmonitor.local>")
             appendLine("MIME-Version: 1.0")
             appendLine("Content-Type: multipart/mixed; boundary=\"$boundary\"")
             appendLine()

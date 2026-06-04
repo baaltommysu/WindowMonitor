@@ -37,7 +37,7 @@ class MailQueue(private val context: Context) {
                 "sent photos=${pendingPhotos.joinToString { it.name }} response=$response deleteRows=$deletedRows"
             )
             store.markSuccess()
-            store.appendLog(action, "成功，SMTP返回=$response，已删除照片数=$deletedRows")
+            store.appendLog(action, "SMTP已接收/排队，返回=$response，已删除照片数=$deletedRows；这不代表Gmail已投递")
             true
         } catch (error: Exception) {
             AppLogger.e(Tag, "mail send failed photos=${pendingPhotos.joinToString { it.name }}", error)

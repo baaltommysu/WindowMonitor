@@ -47,7 +47,7 @@ class PreferenceStore(context: Context) {
         set(value) = prefs.edit().putInt(Keys.MailIntervalMinutes, value.coerceAtLeast(15)).apply()
 
     var smtpHost: String
-        get() = prefs.getString(Keys.SmtpHost, "smtp.163.com") ?: "smtp.163.com"
+        get() = prefs.getString(Keys.SmtpHost, "smtp.sina.com") ?: "smtp.sina.com"
         set(value) = prefs.edit().putString(Keys.SmtpHost, value).apply()
 
     var smtpPort: Int

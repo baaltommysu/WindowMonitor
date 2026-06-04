@@ -221,20 +221,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun migrateMailSettings() {
-        if (store.smtpHost.contains("sina.com", ignoreCase = true)) {
-            store.smtpHost = "smtp.163.com"
-            store.smtpPort = 465
-            store.smtpUsername = ""
-            store.smtpPassword = ""
-            store.mailFrom = ""
-            store.mailDeliveryEnabled = false
-            WorkScheduler.disablePeriodicMail(this)
-            val reason = "Please configure 163 SMTP authorization code"
-            store.markFailure(reason)
-            store.appendLog("邮件配置", "已从新浪SMTP切换到163 SMTP，请填写163邮箱和SMTP授权码")
-            return
-        }
-
         val normalizedHost = normalizeSmtpHost(store.smtpHost)
         if (normalizedHost != store.smtpHost) {
             store.smtpHost = normalizedHost
@@ -297,7 +283,7 @@ data class AppUiState(
 )
 
 data class MailSettings(
-    val smtpHost: String = "smtp.163.com",
+    val smtpHost: String = "smtp.sina.com",
     val smtpPort: String = "465",
     val smtpUsername: String = "",
     val smtpPassword: String = "",

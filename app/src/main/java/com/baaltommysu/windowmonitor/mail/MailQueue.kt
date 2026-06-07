@@ -20,7 +20,7 @@ class MailQueue(private val context: Context) {
             return false
         }
 
-        val pendingPhotos = repository.listPendingPhotosOldestFirst().take(MaxAttachmentsPerMail)
+        val pendingPhotos = repository.listPendingPhotos().take(MaxAttachmentsPerMail)
         AppLogger.d(Tag, "flush pending count=${pendingPhotos.size}")
         if (pendingPhotos.isEmpty()) {
             store.appendLog(action, "跳过，没有待发送照片")
@@ -30,14 +30,14 @@ class MailQueue(private val context: Context) {
         return try {
             store.appendLog(action, "开始，照片数量=${pendingPhotos.size}，文件=${pendingPhotos.joinToString { it.name }}")
             val response = sender.sendCameraReport(config, pendingPhotos)
-            val deletedRows = pendingPhotos.sumOf { repository.deletePhoto(it) }
+            repository.trimCache(MaxStoredPhotos)
             store.lastSendTime = Instant.now().toString()
             AppLogger.d(
                 Tag,
-                "sent photos=${pendingPhotos.joinToString { it.name }} response=$response deleteRows=$deletedRows"
+                "sent photos=${pendingPhotos.joinToString { it.name }} response=$response"
             )
             store.markSuccess()
-            store.appendLog(action, "SMTP已接收/排队，返回=$response，已删除照片数=$deletedRows；这不代表Gmail已投递")
+            store.appendLog(action, "SMTP已接收/排队，返回=$response，照片已保留；这不代表Gmail已投递")
             true
         } catch (error: Exception) {
             AppLogger.e(Tag, "mail send failed photos=${pendingPhotos.joinToString { it.name }}", error)
@@ -50,6 +50,7 @@ class MailQueue(private val context: Context) {
 
     companion object {
         private const val Tag = "MailQueue"
-        private const val MaxAttachmentsPerMail = 4
+        private const val MaxAttachmentsPerMail = 6
+        private const val MaxStoredPhotos = 500
     }
 }

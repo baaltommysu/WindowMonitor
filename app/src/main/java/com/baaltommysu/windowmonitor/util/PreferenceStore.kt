@@ -2,6 +2,8 @@ package com.baaltommysu.windowmonitor.util
 
 import android.content.Context
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class PreferenceStore(context: Context) {
     private val prefs = context.getSharedPreferences("window_monitor_state", Context.MODE_PRIVATE)
@@ -27,7 +29,7 @@ class PreferenceStore(context: Context) {
         set(value) = prefs.edit().putString(Keys.LastFailureTime, value).apply()
 
     var operationLog: String
-        get() = prefs.getString(Keys.OperationLog, "") ?: ""
+        get() = formatOperationLog(prefs.getString(Keys.OperationLog, "") ?: "")
         set(value) = prefs.edit().putString(Keys.OperationLog, value).apply()
 
     var monitoringEnabled: Boolean
@@ -81,10 +83,26 @@ class PreferenceStore(context: Context) {
     }
 
     fun appendLog(action: String, result: String) {
-        val entry = "${Instant.now()} | $action | $result"
-        operationLog = (listOf(entry) + operationLog.lines().filter { it.isNotBlank() })
+        val entry = "${formatForDisplay(Instant.now())} | $action | $result"
+        val currentLog = prefs.getString(Keys.OperationLog, "") ?: ""
+        operationLog = (listOf(entry) + formatOperationLog(currentLog).lines().filter { it.isNotBlank() })
             .take(MaxLogLines)
             .joinToString("\n")
+    }
+
+    private fun formatOperationLog(log: String): String {
+        return log.lines().joinToString("\n") { line ->
+            val separator = " | "
+            val index = line.indexOf(separator)
+            if (index <= 0) return@joinToString line
+            val timestamp = line.substring(0, index)
+            val formatted = runCatching { formatForDisplay(Instant.parse(timestamp)) }.getOrNull()
+            if (formatted == null) line else formatted + line.substring(index)
+        }
+    }
+
+    private fun formatForDisplay(instant: Instant): String {
+        return DisplayFormatter.format(instant.atZone(ZoneId.systemDefault()))
     }
 
     private object Keys {
@@ -108,5 +126,6 @@ class PreferenceStore(context: Context) {
 
     companion object {
         private const val MaxLogLines = 80
+        private val DisplayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     }
 }

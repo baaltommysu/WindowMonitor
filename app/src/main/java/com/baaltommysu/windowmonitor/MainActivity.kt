@@ -55,6 +55,11 @@ import com.baaltommysu.windowmonitor.worker.WorkScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private val DisplayTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 class MainActivity : ComponentActivity() {
     private lateinit var store: PreferenceStore
@@ -180,11 +185,11 @@ class MainActivity : ComponentActivity() {
             mailDeliveryEnabled = store.mailDeliveryEnabled,
             captureIntervalMinutes = store.captureIntervalMinutes.toString(),
             mailIntervalMinutes = store.mailIntervalMinutes.toString(),
-            lastPhotoTime = store.lastPhotoTime,
-            lastSendTime = store.lastSendTime,
-            lastSuccessTime = store.lastSuccessTime,
+            lastPhotoTime = formatTimeForDisplay(store.lastPhotoTime),
+            lastSendTime = formatTimeForDisplay(store.lastSendTime),
+            lastSuccessTime = formatTimeForDisplay(store.lastSuccessTime),
             lastFailureReason = store.lastFailureReason,
-            lastFailureTime = store.lastFailureTime,
+            lastFailureTime = formatTimeForDisplay(store.lastFailureTime),
             operationLog = store.operationLog,
             pendingPhotoCount = repository.listPendingPhotos().size,
             mailConfigured = store.smtpHost.isNotBlank() &&
@@ -202,6 +207,13 @@ class MainActivity : ComponentActivity() {
                 mailTo = store.mailTo
             )
         )
+    }
+
+    private fun formatTimeForDisplay(value: String): String {
+        if (value.isBlank()) return ""
+        return runCatching {
+            DisplayTimeFormatter.format(Instant.parse(value).atZone(ZoneId.systemDefault()))
+        }.getOrElse { value }
     }
 
     private fun saveMailSettings(settings: MailSettings) {

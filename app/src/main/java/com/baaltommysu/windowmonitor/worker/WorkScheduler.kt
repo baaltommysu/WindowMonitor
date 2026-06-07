@@ -18,6 +18,7 @@ object WorkScheduler {
     private const val HeartbeatWorkName = "daily_heartbeat"
     private const val CommandPollingWorkName = "command_polling"
     private const val PeriodicMailWorkName = "periodic_mail_delivery"
+    private const val ImmediateMailWorkName = "immediate_mail_delivery"
 
     fun enablePeriodicCapture(context: Context, intervalMinutes: Long? = null) {
         intervalMinutes?.let { PreferenceStore(context).captureIntervalMinutes = it.toInt() }
@@ -58,6 +59,17 @@ object WorkScheduler {
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PeriodicMailWorkName,
             ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
+    }
+
+    fun sendMailSoon(context: Context) {
+        val request = OneTimeWorkRequestBuilder<MailRetryWorker>()
+            .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            ImmediateMailWorkName,
+            ExistingWorkPolicy.KEEP,
             request
         )
     }

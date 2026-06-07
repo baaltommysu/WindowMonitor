@@ -28,10 +28,10 @@ class MailQueue(private val context: Context) {
         }
 
         return try {
-            store.lastSendTime = Instant.now().toString()
             store.appendLog(action, "开始，照片数量=${pendingPhotos.size}，文件=${pendingPhotos.joinToString { it.name }}")
             val response = sender.sendCameraReport(config, pendingPhotos)
             val deletedRows = pendingPhotos.sumOf { repository.deletePhoto(it) }
+            store.lastSendTime = Instant.now().toString()
             AppLogger.d(
                 Tag,
                 "sent photos=${pendingPhotos.joinToString { it.name }} response=$response deleteRows=$deletedRows"

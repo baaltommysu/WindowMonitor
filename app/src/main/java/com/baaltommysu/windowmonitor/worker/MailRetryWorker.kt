@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.baaltommysu.windowmonitor.mail.MailQueue
+import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.util.PreferenceStore
 
 class MailRetryWorker(
@@ -12,6 +13,12 @@ class MailRetryWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val store = PreferenceStore(applicationContext)
+        val hasPhotos = PhotoRepository(applicationContext).listPendingPhotosOldestFirst().isNotEmpty()
+        if (!hasPhotos && store.monitoringEnabled && runAttemptCount < MaxEmptyRetries) {
+            store.appendLog("周期发送邮件", "暂时没有待发送照片，稍后重试，第${runAttemptCount + 1}次")
+            return Result.retry()
+        }
+
         return if (MailQueue(applicationContext).flushPending("周期发送邮件")) {
             Result.success()
         } else if (store.lastFailureReason.contains("too many message send today", ignoreCase = true)) {
@@ -19,5 +26,9 @@ class MailRetryWorker(
         } else {
             Result.retry()
         }
+    }
+
+    companion object {
+        private const val MaxEmptyRetries = 3
     }
 }

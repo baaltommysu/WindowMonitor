@@ -15,15 +15,18 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.baaltommysu.windowmonitor.R
 import com.baaltommysu.windowmonitor.camera.CameraManager
+import com.baaltommysu.windowmonitor.mail.SmtpConfig
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.util.AppLogger
 import com.baaltommysu.windowmonitor.util.PreferenceStore
+import com.baaltommysu.windowmonitor.worker.WorkScheduler
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
@@ -106,6 +109,7 @@ class CameraCaptureForegroundService : LifecycleService() {
 
                 AppLogger.d(Tag, "capture saved to Pictures/WindowMonitor: ${capturedPhoto.name}")
                 store.appendLog("拍照", "成功，文件=${capturedPhoto.name}")
+                requestMailDeliveryIfDue()
             } catch (error: Exception) {
                 AppLogger.e(Tag, "capture failed", error)
                 val reason = error.message ?: "Capture failed"
@@ -113,6 +117,21 @@ class CameraCaptureForegroundService : LifecycleService() {
                 store.appendLog("拍照", "失败，原因=$reason")
             }
         }
+    }
+
+    private fun requestMailDeliveryIfDue() {
+        if (!store.mailDeliveryEnabled || !SmtpConfig.from(store).isConfigured) return
+        if (!isMailDue()) return
+        store.appendLog("周期发送邮件", "拍照后检测到已到发送周期，准备立即检查队列")
+        WorkScheduler.sendMailSoon(this)
+    }
+
+    private fun isMailDue(): Boolean {
+        val lastSend = store.lastSendTime
+        if (lastSend.isBlank()) return true
+        val lastSendInstant = runCatching { Instant.parse(lastSend) }.getOrNull() ?: return true
+        val elapsedMinutes = Duration.between(lastSendInstant, Instant.now()).toMinutes()
+        return elapsedMinutes >= store.mailIntervalMinutes.coerceAtLeast(15)
     }
 
     private fun hasCameraPermission(): Boolean {

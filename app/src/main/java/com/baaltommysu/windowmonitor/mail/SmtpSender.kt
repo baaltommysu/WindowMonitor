@@ -13,6 +13,7 @@ import java.io.BufferedWriter
 import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.time.Instant
@@ -60,8 +61,9 @@ class SmtpSender(private val context: Context) {
         body: String,
         attachments: List<StoredPhoto>
     ): String {
-        Socket(config.host, config.port).use { socket ->
-            socket.soTimeout = SocketTimeoutMillis
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(config.host, config.port), ConnectTimeoutMillis)
+            socket.soTimeout = ReadTimeoutMillis
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
             val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))
             expect(reader, 220)
@@ -71,6 +73,7 @@ class SmtpSender(private val context: Context) {
             val sslSocket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                 .createSocket(socket, config.host, config.port, true) as SSLSocket
             sslSocket.use { secureSocket ->
+                secureSocket.soTimeout = ReadTimeoutMillis
                 secureSocket.startHandshake()
                 return sendAuthenticatedMessage(
                     config = config,
@@ -90,15 +93,19 @@ class SmtpSender(private val context: Context) {
         body: String,
         attachments: List<StoredPhoto>
     ): String {
-        val socket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-            .createSocket(config.host, config.port) as SSLSocket
-        socket.use { secureSocket ->
-            secureSocket.soTimeout = SocketTimeoutMillis
-            secureSocket.startHandshake()
-            val reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8))
-            val writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
-            expect(reader, 220)
-            return sendAuthenticatedMessage(config, subject, body, attachments, reader, writer)
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(config.host, config.port), ConnectTimeoutMillis)
+            socket.soTimeout = ReadTimeoutMillis
+            val sslSocket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(socket, config.host, config.port, true) as SSLSocket
+            sslSocket.use { secureSocket ->
+                secureSocket.soTimeout = ReadTimeoutMillis
+                secureSocket.startHandshake()
+                val reader = BufferedReader(InputStreamReader(secureSocket.getInputStream(), StandardCharsets.UTF_8))
+                val writer = BufferedWriter(OutputStreamWriter(secureSocket.getOutputStream(), StandardCharsets.UTF_8))
+                expect(reader, 220)
+                return sendAuthenticatedMessage(config, subject, body, attachments, reader, writer)
+            }
         }
     }
 
@@ -248,9 +255,10 @@ class SmtpSender(private val context: Context) {
 
     companion object {
         private const val ImplicitTlsPort = 465
-        private const val SocketTimeoutMillis = 120_000
-        private const val AttachmentMaxSidePx = 1280
-        private const val AttachmentJpegQuality = 72
+        private const val ConnectTimeoutMillis = 20_000
+        private const val ReadTimeoutMillis = 60_000
+        private const val AttachmentMaxSidePx = 1024
+        private const val AttachmentJpegQuality = 68
         private const val Tag = "SmtpSender"
     }
 }

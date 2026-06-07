@@ -589,7 +589,7 @@ private fun MailDeliveryCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Sends up to four pending photos every ${state.mailIntervalMinutes} minutes.",
+                        text = "Sends the latest 6 photos every ${state.mailIntervalMinutes} minutes.",
                         color = Color(0xFF475569),
                         style = MaterialTheme.typography.bodyMedium
                     )

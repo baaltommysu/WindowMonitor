@@ -61,8 +61,8 @@ object WorkScheduler {
     fun enablePeriodicMail(context: Context, intervalMinutes: Long? = null) {
         val store = PreferenceStore(context)
         intervalMinutes?.let { store.mailIntervalMinutes = it.toInt() }
-        if (store.monitoringEnabled) {
-            WorkManager.getInstance(context).cancelUniqueWork(PeriodicMailWorkName)
+        if (!store.mailDeliveryEnabled) {
+            disablePeriodicMail(context)
             return
         }
         val request = PeriodicWorkRequestBuilder<MailRetryWorker>(

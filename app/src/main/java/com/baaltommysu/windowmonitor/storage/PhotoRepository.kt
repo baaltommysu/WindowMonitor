@@ -12,7 +12,12 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -41,19 +46,26 @@ data class StoredPhoto(
 )
 
 data class PhotoQuality(
+    val sizeBytes: Long,
+    val width: Int,
+    val height: Int,
     val meanBrightness: Int,
     val darkRatioPercent: Int,
     val brightRatioPercent: Int
 ) {
     val isUsable: Boolean
-        get() = darkRatioPercent < MaxDarkRatioPercent &&
+        get() = sizeBytes >= MinSizeBytes &&
+            minOf(width, height) >= MinSidePx &&
+            darkRatioPercent < MaxDarkRatioPercent &&
             brightRatioPercent < MaxBrightRatioPercent &&
             meanBrightness in MinMeanBrightness..MaxMeanBrightness
 
     val summary: String
-        get() = "mean=$meanBrightness,dark=${darkRatioPercent}%,bright=${brightRatioPercent}%"
+        get() = "size=${sizeBytes}B,dim=${width}x$height,mean=$meanBrightness,dark=${darkRatioPercent}%,bright=${brightRatioPercent}%"
 
     companion object {
+        private const val MinSizeBytes = 60_000L
+        private const val MinSidePx = 480
         private const val MaxDarkRatioPercent = 90
         private const val MaxBrightRatioPercent = 70
         private const val MinMeanBrightness = 12
@@ -73,9 +85,6 @@ class PhotoRepository(private val context: Context) {
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
             put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$DirectoryName")
             put(MediaStore.Images.Media.DATE_TAKEN, capturedAt.toEpochMilli())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.IS_PENDING, 1)
-            }
         }
         return PhotoTarget(
             collectionUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -86,43 +95,47 @@ class PhotoRepository(private val context: Context) {
     }
 
     fun addTimestampOverlay(photo: CapturedPhoto, capturedAt: Instant) {
-        val original = resolver.openInputStream(photo.uri)?.use { BitmapFactory.decodeStream(it) }
+        val uri = resolvePhotoUri(photo)
+        val original = openPhotoInputStream(uri, photo.name)?.use { BitmapFactory.decodeStream(it) }
             ?: throw IllegalStateException("Could not decode captured photo")
         val bitmap = original.copy(Bitmap.Config.ARGB_8888, true)
         if (bitmap !== original) original.recycle()
 
         val timestamp = WatermarkFormatter.format(capturedAt.atZone(ZoneId.systemDefault()))
         Canvas(bitmap).drawTimestamp(timestamp)
-        resolver.openOutputStream(photo.uri, "wt")?.use { output ->
+        openPhotoOutputStream(uri, photo.name)?.use { output ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
         } ?: throw IllegalStateException("Could not write timestamped photo")
         bitmap.recycle()
     }
 
     fun analyzePhoto(photo: CapturedPhoto): PhotoQuality {
+        val uri = resolvePhotoUri(photo)
+        val sizeBytes = readPhotoSize(uri, photo.name)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(photo.uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        openPhotoInputStream(uri, photo.name)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             ?: throw IllegalStateException("Could not open captured photo")
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Could not read captured photo dimensions" }
 
         val options = BitmapFactory.Options().apply {
             inSampleSize = calculateQualitySampleSize(bounds.outWidth, bounds.outHeight)
         }
-        val bitmap = resolver.openInputStream(photo.uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        val bitmap = openPhotoInputStream(uri, photo.name)?.use { BitmapFactory.decodeStream(it, null, options) }
             ?: throw IllegalStateException("Could not decode captured photo")
         return try {
-            bitmap.measureQuality()
+            bitmap.measureQuality(
+                sizeBytes = sizeBytes,
+                originalWidth = bounds.outWidth,
+                originalHeight = bounds.outHeight
+            )
         } finally {
             bitmap.recycle()
         }
     }
 
     fun markPhotoReady(photo: CapturedPhoto) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val values = ContentValues().apply {
-            put(MediaStore.Images.Media.IS_PENDING, 0)
-        }
-        resolver.update(photo.uri, values, null, null)
+        // CameraX writes a complete JPEG for this use case; avoiding IS_PENDING is more
+        // compatible with vivo Android 14 MediaStore reads.
     }
 
     fun deletePhoto(photo: StoredPhoto): Int {
@@ -133,7 +146,7 @@ class PhotoRepository(private val context: Context) {
         return resolver.delete(photo.uri, null, null)
     }
 
-    fun openPhoto(photo: StoredPhoto) = resolver.openInputStream(photo.uri)
+    fun openPhoto(photo: StoredPhoto) = openPhotoInputStream(photo.uri, photo.name)
 
     fun listPendingPhotos(): List<StoredPhoto> {
         return listPendingPhotos("${MediaStore.Images.Media.DATE_MODIFIED} DESC")
@@ -150,7 +163,11 @@ class PhotoRepository(private val context: Context) {
             MediaStore.Images.Media.DATE_MODIFIED,
             MediaStore.Images.Media.SIZE
         )
-        val selection = "${MediaStore.Images.Media.RELATIVE_PATH}=?"
+        val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            "${MediaStore.Images.Media.RELATIVE_PATH}=? AND ${MediaStore.Images.Media.IS_PENDING}=0"
+        } else {
+            "${MediaStore.Images.Media.RELATIVE_PATH}=?"
+        }
         val args = arrayOf("${Environment.DIRECTORY_PICTURES}/$DirectoryName/")
 
         return resolver.query(
@@ -184,6 +201,74 @@ class PhotoRepository(private val context: Context) {
         }.orEmpty()
     }
 
+    fun openPhotoInputStream(uri: Uri): InputStream? {
+        return openPhotoInputStream(uri, name = null)
+    }
+
+    private fun openPhotoInputStream(uri: Uri, name: String?): InputStream? {
+        return runCatching {
+            resolver.openFileDescriptor(uri, "r")?.let(ParcelFileDescriptor::AutoCloseInputStream)
+        }.getOrNull()
+            ?: openPhotoFileInputStream(name)
+    }
+
+    private fun openPhotoOutputStream(uri: Uri, name: String): java.io.OutputStream? {
+        return resolver.openOutputStream(uri, "wt") ?: openPhotoFileOutputStream(name)
+    }
+
+    private fun openPhotoFileInputStream(name: String?): InputStream? {
+        val file = name?.let(::photoFile) ?: return null
+        return if (file.exists() && file.length() > 0) FileInputStream(file) else null
+    }
+
+    private fun openPhotoFileOutputStream(name: String): FileOutputStream? {
+        val file = photoFile(name)
+        file.parentFile?.mkdirs()
+        return FileOutputStream(file, false)
+    }
+
+    private fun resolvePhotoUri(photo: CapturedPhoto): Uri {
+        if (canOpen(photo.uri)) return photo.uri
+        return findUriByName(photo.name) ?: photo.uri
+    }
+
+    private fun canOpen(uri: Uri): Boolean {
+        return runCatching {
+            resolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+        }.getOrDefault(false)
+    }
+
+    private fun findUriByName(name: String): Uri? {
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val selection = "${MediaStore.Images.Media.RELATIVE_PATH}=? AND ${MediaStore.Images.Media.DISPLAY_NAME}=?"
+        val args = arrayOf("${Environment.DIRECTORY_PICTURES}/$DirectoryName/", name)
+        return resolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            args,
+            "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cursor.getLong(idColumn))
+        }
+    }
+
+    private fun readPhotoSize(uri: Uri, name: String): Long {
+        val projection = arrayOf(MediaStore.Images.Media.SIZE)
+        val queriedSize = resolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            cursor.getLong(sizeColumn)
+        }
+        if (queriedSize != null && queriedSize > 0) return queriedSize
+        val fileSize = photoFile(name).takeIf { it.exists() }?.length()
+        if (fileSize != null && fileSize > 0) return fileSize
+        return runCatching { resolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L }
+            .getOrDefault(0L)
+    }
+
     fun trimCache(maxFiles: Int = 1000) {
         val files = listPendingPhotosOldestFirst()
         if (files.size <= maxFiles) return
@@ -195,6 +280,13 @@ class PhotoRepository(private val context: Context) {
         private val FileNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
         private val WatermarkFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     }
+}
+
+private fun photoFile(name: String): File {
+    return File(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+        "WindowMonitor/$name"
+    )
 }
 
 private fun calculateQualitySampleSize(width: Int, height: Int): Int {
@@ -209,7 +301,11 @@ private fun calculateQualitySampleSize(width: Int, height: Int): Int {
     return sampleSize
 }
 
-private fun Bitmap.measureQuality(): PhotoQuality {
+private fun Bitmap.measureQuality(
+    sizeBytes: Long,
+    originalWidth: Int,
+    originalHeight: Int
+): PhotoQuality {
     val pixels = IntArray(width * height)
     getPixels(pixels, 0, width, 0, 0, width, height)
     var total = 0L
@@ -226,6 +322,9 @@ private fun Bitmap.measureQuality(): PhotoQuality {
     }
     val count = pixels.size.coerceAtLeast(1)
     return PhotoQuality(
+        sizeBytes = sizeBytes,
+        width = originalWidth,
+        height = originalHeight,
         meanBrightness = (total / count).toInt(),
         darkRatioPercent = dark * 100 / count,
         brightRatioPercent = bright * 100 / count

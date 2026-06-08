@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.baaltommysu.windowmonitor.storage.CapturedPhoto
 import com.baaltommysu.windowmonitor.storage.PhotoTarget
+import kotlinx.coroutines.delay
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -17,8 +18,9 @@ class CameraManager(private val context: Context) {
     suspend fun capturePhoto(owner: LifecycleOwner, target: PhotoTarget): CapturedPhoto {
         val cameraProvider = context.awaitCameraProvider()
         val imageCapture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .build()
+        imageCapture.flashMode = ImageCapture.FLASH_MODE_OFF
 
         cameraProvider.unbindAll()
         cameraProvider.bindToLifecycle(
@@ -26,6 +28,7 @@ class CameraManager(private val context: Context) {
             CameraSelector.DEFAULT_BACK_CAMERA,
             imageCapture
         )
+        delay(CameraWarmupMillis)
 
         val outputOptions = ImageCapture.OutputFileOptions.Builder(
             context.contentResolver,
@@ -68,5 +71,9 @@ class CameraManager(private val context: Context) {
                 ContextCompat.getMainExecutor(this)
             )
         }
+    }
+
+    companion object {
+        private const val CameraWarmupMillis = 3_000L
     }
 }

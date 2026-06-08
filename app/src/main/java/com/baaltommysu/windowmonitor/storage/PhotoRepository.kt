@@ -40,6 +40,27 @@ data class StoredPhoto(
     val sizeBytes: Long
 )
 
+data class PhotoQuality(
+    val meanBrightness: Int,
+    val darkRatioPercent: Int,
+    val brightRatioPercent: Int
+) {
+    val isUsable: Boolean
+        get() = darkRatioPercent < MaxDarkRatioPercent &&
+            brightRatioPercent < MaxBrightRatioPercent &&
+            meanBrightness in MinMeanBrightness..MaxMeanBrightness
+
+    val summary: String
+        get() = "mean=$meanBrightness,dark=${darkRatioPercent}%,bright=${brightRatioPercent}%"
+
+    companion object {
+        private const val MaxDarkRatioPercent = 90
+        private const val MaxBrightRatioPercent = 70
+        private const val MinMeanBrightness = 12
+        private const val MaxMeanBrightness = 242
+    }
+}
+
 class PhotoRepository(private val context: Context) {
     private val resolver = context.contentResolver
 
@@ -78,6 +99,24 @@ class PhotoRepository(private val context: Context) {
         bitmap.recycle()
     }
 
+    fun analyzePhoto(photo: CapturedPhoto): PhotoQuality {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(photo.uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            ?: throw IllegalStateException("Could not open captured photo")
+        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Could not read captured photo dimensions" }
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = calculateQualitySampleSize(bounds.outWidth, bounds.outHeight)
+        }
+        val bitmap = resolver.openInputStream(photo.uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            ?: throw IllegalStateException("Could not decode captured photo")
+        return try {
+            bitmap.measureQuality()
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     fun markPhotoReady(photo: CapturedPhoto) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val values = ContentValues().apply {
@@ -87,6 +126,10 @@ class PhotoRepository(private val context: Context) {
     }
 
     fun deletePhoto(photo: StoredPhoto): Int {
+        return resolver.delete(photo.uri, null, null)
+    }
+
+    fun deletePhoto(photo: CapturedPhoto): Int {
         return resolver.delete(photo.uri, null, null)
     }
 
@@ -152,6 +195,41 @@ class PhotoRepository(private val context: Context) {
         private val FileNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
         private val WatermarkFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     }
+}
+
+private fun calculateQualitySampleSize(width: Int, height: Int): Int {
+    var sampleSize = 1
+    var sampledWidth = width
+    var sampledHeight = height
+    while (sampledWidth / 2 >= 320 && sampledHeight / 2 >= 320) {
+        sampleSize *= 2
+        sampledWidth /= 2
+        sampledHeight /= 2
+    }
+    return sampleSize
+}
+
+private fun Bitmap.measureQuality(): PhotoQuality {
+    val pixels = IntArray(width * height)
+    getPixels(pixels, 0, width, 0, 0, width, height)
+    var total = 0L
+    var dark = 0
+    var bright = 0
+    pixels.forEach { color ->
+        val red = Color.red(color)
+        val green = Color.green(color)
+        val blue = Color.blue(color)
+        val luminance = ((red * 299) + (green * 587) + (blue * 114)) / 1000
+        total += luminance
+        if (luminance <= 12) dark += 1
+        if (luminance >= 244) bright += 1
+    }
+    val count = pixels.size.coerceAtLeast(1)
+    return PhotoQuality(
+        meanBrightness = (total / count).toInt(),
+        darkRatioPercent = dark * 100 / count,
+        brightRatioPercent = bright * 100 / count
+    )
 }
 
 private fun Canvas.drawTimestamp(timestamp: String) {

@@ -13,7 +13,7 @@ import com.baaltommysu.windowmonitor.util.PreferenceStore
 import java.util.concurrent.TimeUnit
 
 object WorkScheduler {
-    private const val LegacyCameraWorkName = "periodic_camera_capture"
+    private const val PeriodicCameraWorkName = "periodic_camera_capture"
     private const val ImmediateCameraWorkName = "immediate_camera_capture"
     private const val HeartbeatWorkName = "daily_heartbeat"
     private const val CommandPollingWorkName = "command_polling"
@@ -21,13 +21,23 @@ object WorkScheduler {
     private const val ImmediateMailWorkName = "immediate_mail_delivery"
 
     fun enablePeriodicCapture(context: Context, intervalMinutes: Long? = null) {
-        intervalMinutes?.let { PreferenceStore(context).captureIntervalMinutes = it.toInt() }
-        cancelLegacyCameraWork(context)
+        val store = PreferenceStore(context)
+        intervalMinutes?.let { store.captureIntervalMinutes = it.toInt() }
+        val request = PeriodicWorkRequestBuilder<CameraWorker>(
+            store.captureIntervalMinutes.coerceAtLeast(15).toLong(),
+            TimeUnit.MINUTES
+        ).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            PeriodicCameraWorkName,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
         CameraCaptureForegroundService.startMonitoring(context)
     }
 
     fun disablePeriodicCapture(context: Context) {
-        cancelLegacyCameraWork(context)
+        WorkManager.getInstance(context).cancelUniqueWork(PeriodicCameraWorkName)
+        WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
         CameraCaptureForegroundService.stopMonitoring(context)
         disableHeartbeat(context)
         disableCommandPolling(context)
@@ -51,6 +61,10 @@ object WorkScheduler {
     fun enablePeriodicMail(context: Context, intervalMinutes: Long? = null) {
         val store = PreferenceStore(context)
         intervalMinutes?.let { store.mailIntervalMinutes = it.toInt() }
+        if (store.monitoringEnabled) {
+            WorkManager.getInstance(context).cancelUniqueWork(PeriodicMailWorkName)
+            return
+        }
         val request = PeriodicWorkRequestBuilder<MailRetryWorker>(
             store.mailIntervalMinutes.coerceAtLeast(15).toLong(),
             TimeUnit.MINUTES
@@ -100,7 +114,6 @@ object WorkScheduler {
     }
 
     fun cancelLegacyCameraWork(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(LegacyCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(HeartbeatWorkName)
     }

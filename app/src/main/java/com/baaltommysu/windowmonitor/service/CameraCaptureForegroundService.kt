@@ -103,10 +103,7 @@ class CameraCaptureForegroundService : LifecycleService() {
                     throw IllegalStateException("Camera permission is not granted")
                 }
 
-                val photo = repository.createPhotoTarget()
-                val capturedPhoto = cameraManager.capturePhoto(this@CameraCaptureForegroundService, photo)
-                repository.addTimestampOverlay(capturedPhoto, photo.capturedAt)
-                repository.markPhotoReady(capturedPhoto)
+                val capturedPhoto = captureUsablePhoto()
                 store.lastPhotoTime = Instant.now().toString()
                 repository.trimCache(MaxStoredPhotos)
 
@@ -120,6 +117,27 @@ class CameraCaptureForegroundService : LifecycleService() {
                 store.appendLog("拍照", "失败，原因=$reason")
             }
         }
+    }
+
+    private suspend fun captureUsablePhoto(): com.baaltommysu.windowmonitor.storage.CapturedPhoto {
+        var lastReason = "Unknown quality problem"
+        repeat(MaxCaptureAttempts) { attempt ->
+            val photo = repository.createPhotoTarget()
+            val capturedPhoto = cameraManager.capturePhoto(this@CameraCaptureForegroundService, photo)
+            val quality = repository.analyzePhoto(capturedPhoto)
+            if (quality.isUsable) {
+                repository.addTimestampOverlay(capturedPhoto, photo.capturedAt)
+                repository.markPhotoReady(capturedPhoto)
+                store.appendLog("拍照", "画面检测通过，${quality.summary}")
+                return capturedPhoto
+            }
+
+            lastReason = quality.summary
+            repository.deletePhoto(capturedPhoto)
+            store.appendLog("拍照", "画面异常已丢弃，第${attempt + 1}次，$lastReason")
+            delay(CaptureRetryDelayMillis)
+        }
+        throw IllegalStateException("Captured photo quality failed after $MaxCaptureAttempts attempts: $lastReason")
     }
 
     private suspend fun sendMailIfDue() {
@@ -184,6 +202,8 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val ChannelId = "camera_capture"
         private const val NotificationId = 1001
         private const val MaxStoredPhotos = 500
+        private const val MaxCaptureAttempts = 3
+        private const val CaptureRetryDelayMillis = 2_000L
         private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
         private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
         private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"

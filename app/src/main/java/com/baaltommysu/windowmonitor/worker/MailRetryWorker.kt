@@ -19,7 +19,7 @@ class MailRetryWorker(
             return Result.retry()
         }
 
-        return if (MailQueue(applicationContext).flushPending("周期发送邮件")) {
+        return if (MailQueue(applicationContext).flushPending("周期发送邮件", enforceInterval = true)) {
             Result.success()
         } else if (store.lastFailureReason.contains("too many message send today", ignoreCase = true)) {
             Result.failure()

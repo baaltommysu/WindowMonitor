@@ -113,8 +113,9 @@ class PhotoRepository(private val context: Context) {
         val uri = resolvePhotoUri(photo)
         val sizeBytes = readPhotoSize(uri, photo.name)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        openPhotoInputStream(uri, photo.name)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val boundsStream = openPhotoInputStream(uri, photo.name)
             ?: throw IllegalStateException("Could not open captured photo")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Could not read captured photo dimensions" }
 
         val options = BitmapFactory.Options().apply {
@@ -134,8 +135,12 @@ class PhotoRepository(private val context: Context) {
     }
 
     fun markPhotoReady(photo: CapturedPhoto) {
-        // CameraX writes a complete JPEG for this use case; avoiding IS_PENDING is more
-        // compatible with vivo Android 14 MediaStore reads.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val uri = resolvePhotoUri(photo)
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.IS_PENDING, 0)
+        }
+        resolver.update(uri, values, null, null)
     }
 
     fun deletePhoto(photo: StoredPhoto): Int {

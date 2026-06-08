@@ -15,6 +15,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.baaltommysu.windowmonitor.R
 import com.baaltommysu.windowmonitor.camera.CameraManager
+import com.baaltommysu.windowmonitor.mail.MailDeliveryPolicy
 import com.baaltommysu.windowmonitor.mail.MailQueue
 import com.baaltommysu.windowmonitor.mail.SmtpConfig
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
@@ -28,7 +29,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
@@ -124,7 +124,7 @@ class CameraCaptureForegroundService : LifecycleService() {
         repeat(MaxCaptureAttempts) { attempt ->
             val photo = repository.createPhotoTarget()
             val capturedPhoto = cameraManager.capturePhoto(this@CameraCaptureForegroundService, photo)
-            val quality = repository.analyzePhoto(capturedPhoto)
+            val quality = waitForPhotoQuality(capturedPhoto)
             if (quality.isUsable) {
                 repository.addTimestampOverlay(capturedPhoto, photo.capturedAt)
                 repository.markPhotoReady(capturedPhoto)
@@ -140,21 +140,32 @@ class CameraCaptureForegroundService : LifecycleService() {
         throw IllegalStateException("Captured photo quality failed after $MaxCaptureAttempts attempts: $lastReason")
     }
 
-    private suspend fun sendMailIfDue() {
-        if (!store.mailDeliveryEnabled || !SmtpConfig.from(store).isConfigured) return
-        if (!isMailDue()) return
-        store.appendLog("周期发送邮件", "拍照后检测到已到发送周期，前台服务直接发送")
-        withContext(Dispatchers.IO) {
-            MailQueue(this@CameraCaptureForegroundService).flushPending("周期发送邮件")
+    private suspend fun waitForPhotoQuality(
+        photo: com.baaltommysu.windowmonitor.storage.CapturedPhoto
+    ): com.baaltommysu.windowmonitor.storage.PhotoQuality {
+        var lastError: Throwable? = null
+        repeat(PhotoReadAttempts) {
+            try {
+                return repository.analyzePhoto(photo)
+            } catch (error: Exception) {
+                lastError = error
+                delay(PhotoReadRetryDelayMillis)
+            }
         }
+        repository.deletePhoto(photo)
+        throw IllegalStateException(lastError?.message ?: "Could not read captured photo")
     }
 
-    private fun isMailDue(): Boolean {
-        val lastSend = store.lastSendTime
-        if (lastSend.isBlank()) return true
-        val lastSendInstant = runCatching { Instant.parse(lastSend) }.getOrNull() ?: return true
-        val elapsedMinutes = Duration.between(lastSendInstant, Instant.now()).toMinutes()
-        return elapsedMinutes >= store.mailIntervalMinutes.coerceAtLeast(15)
+    private suspend fun sendMailIfDue() {
+        if (!store.mailDeliveryEnabled || !SmtpConfig.from(store).isConfigured) return
+        if (!MailDeliveryPolicy.isDue(store.lastSendTime, store.mailIntervalMinutes)) return
+        store.appendLog("周期发送邮件", "拍照后检测到已到发送周期，前台服务直接发送")
+        withContext(Dispatchers.IO) {
+            MailQueue(this@CameraCaptureForegroundService).flushPending(
+                action = "周期发送邮件",
+                enforceInterval = true
+            )
+        }
     }
 
     private fun hasCameraPermission(): Boolean {
@@ -204,6 +215,8 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val MaxStoredPhotos = 500
         private const val MaxCaptureAttempts = 3
         private const val CaptureRetryDelayMillis = 2_000L
+        private const val PhotoReadAttempts = 8
+        private const val PhotoReadRetryDelayMillis = 750L
         private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
         private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
         private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"

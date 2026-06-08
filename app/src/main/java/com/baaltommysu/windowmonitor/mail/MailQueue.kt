@@ -11,13 +11,23 @@ class MailQueue(private val context: Context) {
     private val repository = PhotoRepository(context)
     private val sender = SmtpSender(context)
 
-    fun flushPending(action: String = "发送邮件"): Boolean {
+    fun flushPending(action: String = "发送邮件", enforceInterval: Boolean = false): Boolean {
+        synchronized(SendLock) {
+            return flushPendingLocked(action, enforceInterval)
+        }
+    }
+
+    private fun flushPendingLocked(action: String, enforceInterval: Boolean): Boolean {
         val config = SmtpConfig.from(store)
         if (!config.isConfigured) {
             val reason = "SMTP is not configured"
             store.markFailure(reason)
             store.appendLog(action, "失败，原因=$reason")
             return false
+        }
+        if (enforceInterval && !MailDeliveryPolicy.isDue(store.lastSendTime, store.mailIntervalMinutes)) {
+            store.appendLog(action, "跳过，未到发送周期")
+            return true
         }
 
         val pendingPhotos = repository.listPendingPhotos().take(MaxAttachmentsPerMail)
@@ -49,6 +59,7 @@ class MailQueue(private val context: Context) {
     }
 
     companion object {
+        private val SendLock = Any()
         private const val Tag = "MailQueue"
         private const val MaxAttachmentsPerMail = 6
         private const val MaxStoredPhotos = 500

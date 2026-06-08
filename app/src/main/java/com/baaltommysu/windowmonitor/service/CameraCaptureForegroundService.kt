@@ -22,22 +22,18 @@ import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.util.AppLogger
 import com.baaltommysu.windowmonitor.util.PreferenceStore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 
 class CameraCaptureForegroundService : LifecycleService() {
     private val store by lazy { PreferenceStore(this) }
     private val repository by lazy { PhotoRepository(this) }
     private val cameraManager by lazy { CameraManager(this) }
     private val captureMutex = Mutex()
-    private var monitorJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
@@ -51,7 +47,8 @@ class CameraCaptureForegroundService : LifecycleService() {
 
         when (intent?.action) {
             ActionStopMonitoring -> stopMonitoring()
-            ActionCaptureOnce -> captureOnce(stopWhenDone = monitorJob == null, startId = startId)
+            ActionCaptureOnce -> captureOnce(stopWhenDone = true, startId = startId)
+            ActionSendMailOnce -> sendMailOnce(stopWhenDone = true, startId = startId)
             else -> startMonitoring()
         }
 
@@ -59,38 +56,51 @@ class CameraCaptureForegroundService : LifecycleService() {
     }
 
     override fun onDestroy() {
-        monitorJob?.cancel()
         releaseWakeLock()
         super.onDestroy()
     }
 
     private fun startMonitoring() {
         store.monitoringEnabled = true
-        acquireWakeLock()
-        if (monitorJob?.isActive == true) return
-
-        monitorJob = lifecycleScope.launch {
-            while (isActive && store.monitoringEnabled) {
-                runCaptureCycle()
-                delay(TimeUnit.MINUTES.toMillis(store.captureIntervalMinutes.toLong()))
-            }
-            stopSelf()
-        }
+        com.baaltommysu.windowmonitor.worker.WorkScheduler.scheduleNextCaptureAlarm(this)
+        stopSelf()
     }
 
     private fun stopMonitoring() {
         store.monitoringEnabled = false
-        monitorJob?.cancel()
-        monitorJob = null
         releaseWakeLock()
         stopSelf()
     }
 
     private fun captureOnce(stopWhenDone: Boolean, startId: Int) {
         lifecycleScope.launch {
-            runCaptureCycle()
-            if (stopWhenDone) {
-                stopSelf(startId)
+            acquireWakeLock()
+            try {
+                runCaptureCycle()
+            } finally {
+                releaseWakeLock()
+                if (stopWhenDone) {
+                    stopSelf(startId)
+                }
+            }
+        }
+    }
+
+    private fun sendMailOnce(stopWhenDone: Boolean, startId: Int) {
+        lifecycleScope.launch {
+            acquireWakeLock()
+            try {
+                withContext(Dispatchers.IO) {
+                    MailQueue(this@CameraCaptureForegroundService).flushPending(
+                        action = "周期发送邮件",
+                        enforceInterval = true
+                    )
+                }
+            } finally {
+                releaseWakeLock()
+                if (stopWhenDone) {
+                    stopSelf(startId)
+                }
             }
         }
     }
@@ -109,12 +119,14 @@ class CameraCaptureForegroundService : LifecycleService() {
 
                 AppLogger.d(Tag, "capture saved to Pictures/WindowMonitor: ${capturedPhoto.name}")
                 store.appendLog("拍照", "成功，文件=${capturedPhoto.name}")
+                com.baaltommysu.windowmonitor.worker.WorkScheduler.scheduleNextCaptureAlarm(this@CameraCaptureForegroundService)
                 sendMailIfDue()
             } catch (error: Exception) {
                 AppLogger.e(Tag, "capture failed", error)
                 val reason = error.message ?: "Capture failed"
                 store.markFailure(reason)
                 store.appendLog("拍照", "失败，原因=$reason")
+                com.baaltommysu.windowmonitor.worker.WorkScheduler.scheduleNextCaptureAlarm(this@CameraCaptureForegroundService)
             }
         }
     }
@@ -220,6 +232,7 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
         private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
         private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"
+        private const val ActionSendMailOnce = "com.baaltommysu.windowmonitor.SEND_MAIL_ONCE"
 
         fun startMonitoring(context: Context) {
             start(context, ActionStartMonitoring)
@@ -233,6 +246,10 @@ class CameraCaptureForegroundService : LifecycleService() {
 
         fun captureOnce(context: Context) {
             start(context, ActionCaptureOnce)
+        }
+
+        fun sendMailOnce(context: Context) {
+            start(context, ActionSendMailOnce)
         }
 
         private fun start(context: Context, actionName: String) {

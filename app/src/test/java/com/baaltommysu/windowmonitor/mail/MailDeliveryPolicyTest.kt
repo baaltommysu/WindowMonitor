@@ -1,6 +1,7 @@
 package com.baaltommysu.windowmonitor.mail
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -35,6 +36,18 @@ class MailDeliveryPolicyTest {
                 lastSendTime = "2026-06-08T06:00:00Z",
                 intervalMinutes = 120,
                 now = Instant.parse("2026-06-08T08:00:00Z")
+            )
+        )
+    }
+
+    @Test
+    fun computesRemainingDelayUntilNextSend() {
+        assertEquals(
+            30 * 60 * 1000L,
+            MailDeliveryPolicy.millisUntilDue(
+                lastSendTime = "2026-06-08T06:00:00Z",
+                intervalMinutes = 120,
+                now = Instant.parse("2026-06-08T07:30:00Z")
             )
         )
     }

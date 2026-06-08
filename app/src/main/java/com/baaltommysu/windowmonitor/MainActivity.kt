@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
             WorkScheduler.enablePeriodicCapture(this)
             WorkScheduler.enableCommandPolling(this)
         }
-        if (uiState.mailDeliveryEnabled && uiState.mailConfigured) {
+        if (store.mailDeliveryEnabled && isMailConfigured()) {
             WorkScheduler.enablePeriodicMail(this)
         }
     }

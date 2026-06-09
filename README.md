@@ -4,6 +4,14 @@ WindowMonitor is an Android camera monitoring app for local experiments. It keep
 
 The current target device is Android 14 on vivo X Note. Current app version: `0.3.2`.
 
+## Recent Change Summary
+
+- `b8c8d2f` / `5a20567`: updated the project to `0.3.2`, documented the current runtime model, and moved periodic monitoring toward a long-lived foreground camera service. This keeps the camera service running after the app leaves the screen and avoids Android 14 rejecting a new background start of a `camera` foreground service.
+- `5a20567`: added `MailDeliveryForegroundService` with `dataSync` foreground-service type, so periodic mail delivery no longer depends on the camera foreground-service type. It also added `CaptureSchedulePolicy` and tests so the next capture time is calculated from the last successful photo instead of being reset every time the app is opened.
+- `d9f7407`: added alarm-based wakeups for periodic capture and mail with `AlarmReceiver`, while keeping WorkManager for mail retry behavior. This improved behavior when the device is idle and made capture/mail scheduling explicit in app logs.
+- `cb1a866`: fixed photo analysis and gallery visibility edge cases, including Android bitmap bounds decoding behavior and pending-photo handling. It also added tests around photo quality and mail delivery timing.
+- `e57f900`: fixed the original three reported reliability issues: periodic mail scheduling no longer depends on monitoring state, CameraX capture now warms up with `ImageAnalysis` before `takePicture`, and photo decoding uses `openFileDescriptor` for MediaStore URIs to avoid vivo Android 14 `openInputStream` null failures.
+
 ## Current Features
 
 - CameraX photo capture

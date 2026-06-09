@@ -104,7 +104,6 @@ class MainActivity : ComponentActivity() {
         refreshUiState()
         if (uiState.monitoringEnabled && uiState.cameraPermissionGranted) {
             WorkScheduler.enablePeriodicCapture(this, keepForegroundService = true)
-            WorkScheduler.enableCommandPolling(this)
         }
         if (store.mailDeliveryEnabled && isMailConfigured()) {
             WorkScheduler.enablePeriodicMail(this)
@@ -128,7 +127,6 @@ class MainActivity : ComponentActivity() {
         store.monitoringEnabled = enabled
         if (enabled) {
             WorkScheduler.enablePeriodicCapture(this, keepForegroundService = true)
-            WorkScheduler.enableCommandPolling(this)
             if (store.mailDeliveryEnabled && isMailConfigured()) {
                 WorkScheduler.enablePeriodicMail(this)
             }

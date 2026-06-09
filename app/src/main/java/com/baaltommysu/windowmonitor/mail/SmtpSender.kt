@@ -41,11 +41,6 @@ class SmtpSender(private val context: Context) {
         return send(config, subject, body, photos)
     }
 
-    fun sendHeartbeat(config: SmtpConfig, body: String): String {
-        require(config.isConfigured) { "SMTP is not configured" }
-        return send(config, "Heartbeat Mail", body, attachments = emptyList())
-    }
-
     private fun send(config: SmtpConfig, subject: String, body: String, attachments: List<StoredPhoto>): String {
         AppLogger.d(Tag, "connecting smtp=${config.host}:${config.port} to=${config.to} attachments=${attachments.size}")
         return if (config.port == ImplicitTlsPort) {

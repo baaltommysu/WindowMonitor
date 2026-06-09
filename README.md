@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.3.2`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.3.3`.
 
 ## Recent Change Summary
 
+- `0.3.3`: removed abandoned code paths: the old periodic `CameraWorker`, unused command polling and FCM placeholders, unused heartbeat mail worker/manager, and the deprecated camera-service mail entry point. Legacy WorkManager names are still canceled so old scheduled work is cleaned up when the app starts.
 - `b8c8d2f` / `5a20567`: updated the project to `0.3.2`, documented the current runtime model, and moved periodic monitoring toward a long-lived foreground camera service. This keeps the camera service running after the app leaves the screen and avoids Android 14 rejecting a new background start of a `camera` foreground service.
 - `5a20567`: added `MailDeliveryForegroundService` with `dataSync` foreground-service type, so periodic mail delivery no longer depends on the camera foreground-service type. It also added `CaptureSchedulePolicy` and tests so the next capture time is calculated from the last successful photo instead of being reset every time the app is opened.
 - `d9f7407`: added alarm-based wakeups for periodic capture and mail with `AlarmReceiver`, while keeping WorkManager for mail retry behavior. This improved behavior when the device is idle and made capture/mail scheduling explicit in app logs.
@@ -27,7 +28,6 @@ The current target device is Android 14 on vivo X Note. Current app version: `0.
 - SMTP mail sender with up to six image attachments per message
 - Pending photo retry behavior when mail is not configured or sending fails
 - Boot receiver to restore monitoring after reboot
-- Remote command polling and FCM handler placeholders
 
 ## Photo Location
 
@@ -224,8 +224,6 @@ app/src/main/java/com/baaltommysu/windowmonitor/
 ├── MainActivity.kt
 ├── camera/
 │   └── CameraManager.kt
-├── heartbeat/
-│   └── HeartbeatManager.kt
 ├── mail/
 │   ├── MailQueue.kt
 │   ├── SmtpConfig.kt
@@ -233,9 +231,6 @@ app/src/main/java/com/baaltommysu/windowmonitor/
 ├── receiver/
 │   ├── AlarmReceiver.kt
 │   └── BootReceiver.kt
-├── remote/
-│   ├── CommandApi.kt
-│   └── FcmService.kt
 ├── service/
 │   ├── CameraCaptureForegroundService.kt
 │   └── MailDeliveryForegroundService.kt
@@ -247,9 +242,6 @@ app/src/main/java/com/baaltommysu/windowmonitor/
 │   └── PreferenceStore.kt
 └── worker/
     ├── CaptureSchedulePolicy.kt
-    ├── CameraWorker.kt
-    ├── CommandPollingWorker.kt
-    ├── HeartbeatWorker.kt
     ├── MailRetryWorker.kt
     └── WorkScheduler.kt
 ```
@@ -257,7 +249,6 @@ app/src/main/java/com/baaltommysu/windowmonitor/
 ## Known Limitations
 
 - SMTP credentials are stored in app-local preferences for the current prototype.
-- FCM and remote command polling are placeholders.
 - WorkManager periodic mail delivery uses Android's minimum periodic interval, so values below 15 minutes are rounded up. Alarm scheduling is used alongside it for the active periodic mail path.
 - The app is intended for personal testing and non-Play distribution.
 - Long-term camera use may still be affected by vendor power management unless the app is excluded from battery optimization and allowed to run in the background.

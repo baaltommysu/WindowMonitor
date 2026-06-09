@@ -7,7 +7,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -63,10 +62,6 @@ class CameraCaptureForegroundService : LifecycleService() {
                 startId = startId,
                 force = intent.getBooleanExtra(ExtraForceCapture, true)
             )
-            ActionSendMailOnce -> {
-                MailDeliveryForegroundService.sendMailOnce(this)
-                if (!store.monitoringEnabled) stopSelf(startId)
-            }
             else -> startMonitoring()
         }
 
@@ -104,7 +99,7 @@ class CameraCaptureForegroundService : LifecycleService() {
 
     private fun startMonitoring() {
         store.monitoringEnabled = true
-        WorkScheduler.cancelLegacyCameraWork(this)
+        WorkScheduler.cancelAbandonedWork(this)
         WorkScheduler.scheduleNextCaptureAlarm(this)
         ensureMonitoringLoop()
     }
@@ -148,26 +143,6 @@ class CameraCaptureForegroundService : LifecycleService() {
             try {
                 runCaptureCycle(force)
             } finally {
-                releaseWakeLock()
-                if (stopWhenDone) {
-                    stopSelf(startId)
-                }
-            }
-        }
-    }
-
-    private fun sendMailOnce(stopWhenDone: Boolean, startId: Int) {
-        lifecycleScope.launch {
-            acquireWakeLock()
-            try {
-                withContext(Dispatchers.IO) {
-                    MailQueue(this@CameraCaptureForegroundService).flushPending(
-                        action = "周期发送邮件",
-                        enforceInterval = true
-                    )
-                }
-            } finally {
-                WorkScheduler.scheduleNextMailAlarm(this@CameraCaptureForegroundService)
                 releaseWakeLock()
                 if (stopWhenDone) {
                     stopSelf(startId)
@@ -269,7 +244,7 @@ class CameraCaptureForegroundService : LifecycleService() {
             "WindowMonitor:CameraCapture"
         ).apply {
             setReferenceCounted(false)
-            acquire()
+            acquire(WakeLockTimeoutMillis)
         }
     }
 
@@ -279,7 +254,6 @@ class CameraCaptureForegroundService : LifecycleService() {
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             ChannelId,
@@ -306,10 +280,10 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val PhotoReadAttempts = 8
         private const val PhotoReadRetryDelayMillis = 750L
         private const val MonitorLoopPauseMillis = 60_000L
+        private const val WakeLockTimeoutMillis = 10 * 60 * 1000L
         private const val ActionStartMonitoring = "com.baaltommysu.windowmonitor.START_MONITORING"
         private const val ActionStopMonitoring = "com.baaltommysu.windowmonitor.STOP_MONITORING"
         private const val ActionCaptureOnce = "com.baaltommysu.windowmonitor.CAPTURE_ONCE"
-        private const val ActionSendMailOnce = "com.baaltommysu.windowmonitor.SEND_MAIL_ONCE"
         private const val ExtraForceCapture = "force_capture"
 
         fun startMonitoring(context: Context) {
@@ -331,10 +305,6 @@ class CameraCaptureForegroundService : LifecycleService() {
             start(context, ActionCaptureOnce) {
                 putExtra(ExtraForceCapture, false)
             }
-        }
-
-        fun sendMailOnce(context: Context) {
-            MailDeliveryForegroundService.sendMailOnce(context)
         }
 
         private fun start(

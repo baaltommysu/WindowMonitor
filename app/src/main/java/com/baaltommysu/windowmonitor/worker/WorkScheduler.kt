@@ -7,9 +7,7 @@ import android.content.Intent
 import android.os.SystemClock
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.baaltommysu.windowmonitor.mail.MailDeliveryPolicy
@@ -27,7 +25,6 @@ object WorkScheduler {
     private const val HeartbeatWorkName = "daily_heartbeat"
     private const val CommandPollingWorkName = "command_polling"
     private const val PeriodicMailWorkName = "periodic_mail_delivery"
-    private const val ImmediateMailWorkName = "immediate_mail_delivery"
     private const val CaptureAlarmRequestCode = 1001
     private const val MailAlarmRequestCode = 1002
     private const val MinAlarmDelayMillis = 60_000L
@@ -39,8 +36,7 @@ object WorkScheduler {
     ) {
         val store = PreferenceStore(context)
         intervalMinutes?.let { store.captureIntervalMinutes = it.toInt() }
-        WorkManager.getInstance(context).cancelUniqueWork(PeriodicCameraWorkName)
-        WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
+        cancelAbandonedWork(context)
         if (keepForegroundService) {
             CameraCaptureForegroundService.startMonitoring(context)
         } else {
@@ -49,27 +45,13 @@ object WorkScheduler {
     }
 
     fun disablePeriodicCapture(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(PeriodicCameraWorkName)
-        WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
+        cancelAbandonedWork(context)
         cancelCaptureAlarm(context)
         CameraCaptureForegroundService.stopMonitoring(context)
-        disableHeartbeat(context)
-        disableCommandPolling(context)
     }
 
     fun captureNow(context: Context) {
         CameraCaptureForegroundService.captureOnce(context)
-    }
-
-    fun enableHeartbeat(context: Context) {
-        val request = PeriodicWorkRequestBuilder<HeartbeatWorker>(24, TimeUnit.HOURS)
-            .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
-            .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            HeartbeatWorkName,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
     }
 
     fun enablePeriodicMail(context: Context, intervalMinutes: Long? = null) {
@@ -92,47 +74,16 @@ object WorkScheduler {
         scheduleNextMailAlarm(context)
     }
 
-    fun sendMailSoon(context: Context) {
-        val request = OneTimeWorkRequestBuilder<MailRetryWorker>()
-            .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            ImmediateMailWorkName,
-            ExistingWorkPolicy.KEEP,
-            request
-        )
-    }
-
-    fun enableCommandPolling(context: Context, intervalMinutes: Long = 30) {
-        val request = PeriodicWorkRequestBuilder<CommandPollingWorker>(
-            intervalMinutes.coerceAtLeast(15),
-            TimeUnit.MINUTES
-        ).setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
-            .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            CommandPollingWorkName,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
-    }
-
-    fun disableHeartbeat(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(HeartbeatWorkName)
-    }
-
-    fun disableCommandPolling(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(CommandPollingWorkName)
-    }
-
     fun disablePeriodicMail(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(PeriodicMailWorkName)
         cancelMailAlarm(context)
     }
 
-    fun cancelLegacyCameraWork(context: Context) {
+    fun cancelAbandonedWork(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(PeriodicCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(HeartbeatWorkName)
+        WorkManager.getInstance(context).cancelUniqueWork(CommandPollingWorkName)
     }
 
     fun scheduleNextCaptureAlarm(context: Context) {

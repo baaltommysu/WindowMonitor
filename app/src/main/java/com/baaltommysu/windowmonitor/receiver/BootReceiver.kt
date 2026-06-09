@@ -12,10 +12,9 @@ class BootReceiver : BroadcastReceiver() {
         val store = PreferenceStore(context)
         if (!store.monitoringEnabled && !store.mailDeliveryEnabled) return
 
-        WorkScheduler.cancelLegacyCameraWork(context)
+        WorkScheduler.cancelAbandonedWork(context)
         if (store.monitoringEnabled) {
             WorkScheduler.enablePeriodicCapture(context)
-            WorkScheduler.enableCommandPolling(context)
         }
         if (store.mailDeliveryEnabled &&
             store.smtpHost.isNotBlank() &&

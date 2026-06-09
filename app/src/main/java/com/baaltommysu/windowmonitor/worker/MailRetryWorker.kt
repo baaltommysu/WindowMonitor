@@ -19,7 +19,9 @@ class MailRetryWorker(
             return Result.retry()
         }
 
-        return if (MailQueue(applicationContext).flushPending("周期发送邮件", enforceInterval = true)) {
+        val sentOrSkipped = MailQueue(applicationContext).flushPending("周期发送邮件", enforceInterval = true)
+        WorkScheduler.scheduleNextMailAlarm(applicationContext)
+        return if (sentOrSkipped) {
             Result.success()
         } else if (store.lastFailureReason.contains("too many message send today", ignoreCase = true)) {
             Result.failure()

@@ -32,21 +32,19 @@ object WorkScheduler {
     private const val MailAlarmRequestCode = 1002
     private const val MinAlarmDelayMillis = 60_000L
 
-    fun enablePeriodicCapture(context: Context, intervalMinutes: Long? = null) {
+    fun enablePeriodicCapture(
+        context: Context,
+        intervalMinutes: Long? = null,
+        keepForegroundService: Boolean = false
+    ) {
         val store = PreferenceStore(context)
         intervalMinutes?.let { store.captureIntervalMinutes = it.toInt() }
-        val request = PeriodicWorkRequestBuilder<CameraWorker>(
-            store.captureIntervalMinutes.coerceAtLeast(15).toLong(),
-            TimeUnit.MINUTES
-        ).build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            PeriodicCameraWorkName,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
-        scheduleNextCaptureAlarm(context)
-        if (store.mailDeliveryEnabled) {
-            enablePeriodicMail(context)
+        WorkManager.getInstance(context).cancelUniqueWork(PeriodicCameraWorkName)
+        WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
+        if (keepForegroundService) {
+            CameraCaptureForegroundService.startMonitoring(context)
+        } else {
+            scheduleNextCaptureAlarm(context)
         }
     }
 
@@ -72,7 +70,6 @@ object WorkScheduler {
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
-        scheduleNextMailAlarm(context)
     }
 
     fun enablePeriodicMail(context: Context, intervalMinutes: Long? = null) {
@@ -92,6 +89,7 @@ object WorkScheduler {
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
+        scheduleNextMailAlarm(context)
     }
 
     fun sendMailSoon(context: Context) {
@@ -132,6 +130,7 @@ object WorkScheduler {
     }
 
     fun cancelLegacyCameraWork(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(PeriodicCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(ImmediateCameraWorkName)
         WorkManager.getInstance(context).cancelUniqueWork(HeartbeatWorkName)
     }
@@ -142,12 +141,12 @@ object WorkScheduler {
             cancelCaptureAlarm(context)
             return
         }
-        val delayMillis = TimeUnit.MINUTES.toMillis(store.captureIntervalMinutes.coerceAtLeast(15).toLong())
+        val delayMillis = CaptureSchedulePolicy.millisUntilDue(
+            lastPhotoTime = store.lastPhotoTime,
+            intervalMinutes = store.captureIntervalMinutes
+        ).coerceAtLeast(MinAlarmDelayMillis)
         scheduleAlarm(context, ActionCaptureAlarm, CaptureAlarmRequestCode, delayMillis)
         store.appendLog("定时拍照", "已安排下次唤醒，约${delayMillis / 60_000}分钟后")
-        if (store.mailDeliveryEnabled) {
-            scheduleNextMailAlarm(context)
-        }
     }
 
     fun scheduleNextMailAlarm(context: Context) {

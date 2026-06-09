@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshUiState()
         if (uiState.monitoringEnabled && uiState.cameraPermissionGranted) {
-            WorkScheduler.enablePeriodicCapture(this)
+            WorkScheduler.enablePeriodicCapture(this, keepForegroundService = true)
             WorkScheduler.enableCommandPolling(this)
         }
         if (store.mailDeliveryEnabled && isMailConfigured()) {
@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity() {
     private fun setMonitoringEnabled(enabled: Boolean) {
         store.monitoringEnabled = enabled
         if (enabled) {
-            WorkScheduler.enablePeriodicCapture(this)
+            WorkScheduler.enablePeriodicCapture(this, keepForegroundService = true)
             WorkScheduler.enableCommandPolling(this)
             if (store.mailDeliveryEnabled && isMailConfigured()) {
                 WorkScheduler.enablePeriodicMail(this)
@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
     private fun saveCaptureInterval(minutesText: String) {
         store.captureIntervalMinutes = minutesText.toIntOrNull() ?: 30
         if (store.monitoringEnabled) {
-            WorkScheduler.enablePeriodicCapture(this)
+            WorkScheduler.enablePeriodicCapture(this, keepForegroundService = true)
         }
         refreshUiState()
     }

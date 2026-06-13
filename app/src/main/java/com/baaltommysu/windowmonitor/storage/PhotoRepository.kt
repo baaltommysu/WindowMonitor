@@ -274,10 +274,17 @@ class PhotoRepository(private val context: Context) {
             .getOrDefault(0L)
     }
 
-    fun trimCache(maxFiles: Int = 1000) {
-        val files = listPendingPhotosOldestFirst()
-        if (files.size <= maxFiles) return
-        files.take(files.size - maxFiles).forEach { deletePhoto(it) }
+    fun deleteOldestPhotosIfStorageLow(): Int {
+        if (!isStorageLow()) return 0
+
+        var deletedCount = 0
+        for (photo in listPendingPhotosOldestFirst()) {
+            if (!isStorageLow()) break
+            if (deletePhoto(photo) > 0) {
+                deletedCount += 1
+            }
+        }
+        return deletedCount
     }
 
     companion object {
@@ -291,6 +298,14 @@ private fun photoFile(name: String): File {
     return File(
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
         "WindowMonitor/$name"
+    )
+}
+
+private fun isStorageLow(): Boolean {
+    val storageRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+    return StorageCleanupPolicy.shouldDeleteOldestPhotos(
+        freeBytes = storageRoot.freeSpace,
+        totalBytes = storageRoot.totalSpace
     )
 }
 

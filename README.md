@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.3.3`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.3.4`.
 
 ## Recent Change Summary
 
+- `0.3.4`: changed photo retention from a fixed 500-photo cap to storage-pressure cleanup. Captured photos are kept unless the phone storage backing `Pictures/WindowMonitor` reaches 5% free space or lower; only then does the app delete the oldest photos until free space rises above that threshold.
 - `0.3.3`: removed abandoned code paths: the old periodic `CameraWorker`, unused command polling and FCM placeholders, unused heartbeat mail worker/manager, and the deprecated camera-service mail entry point. Legacy WorkManager names are still canceled so old scheduled work is cleaned up when the app starts.
 - `b8c8d2f` / `5a20567`: updated the project to `0.3.2`, documented the current runtime model, and moved periodic monitoring toward a long-lived foreground camera service. This keeps the camera service running after the app leaves the screen and avoids Android 14 rejecting a new background start of a `camera` foreground service.
 - `5a20567`: added `MailDeliveryForegroundService` with `dataSync` foreground-service type, so periodic mail delivery no longer depends on the camera foreground-service type. It also added `CaptureSchedulePolicy` and tests so the next capture time is calculated from the last successful photo instead of being reset every time the app is opened.
@@ -22,6 +23,7 @@ The current target device is Android 14 on vivo X Note. Current app version: `0.
 - AlarmManager wakeups plus an in-service capture loop for periodic scheduling
 - Screen-off capture and mail delivery using partial wake locks
 - Public photo storage through MediaStore
+- Storage-pressure cleanup that deletes oldest photos only when free storage is 5% or lower
 - MediaStore decode through file descriptors for vivo Android 14 compatibility
 - Camera warmup using ImageCapture plus ImageAnalysis before taking a photo
 - In-app SMTP configuration form, defaulting to Sina SMTP
@@ -44,6 +46,12 @@ Example filename:
 ```text
 photo_20260601_224113.jpg
 ```
+
+## Photo Retention
+
+The app does not delete photos based on a fixed count. Photos stay in `Pictures/WindowMonitor` unless the phone storage backing that folder reaches 5% free space or lower.
+
+When storage is low, the app deletes the oldest `WindowMonitor` photos first and stops deleting once free space is above the 5% threshold.
 
 ## Mail Settings
 
@@ -73,7 +81,7 @@ To: destination email address
 
 Use a 163 SMTP authorization code, not the mailbox login password.
 
-After saving settings, enable `Periodic mail` and set the mail interval in minutes. With the default 30-minute capture interval and 120-minute mail interval, the app normally sends one message containing up to six photos. Sent photos are retained in `Pictures/WindowMonitor`; the app trims older local photos only when the cache exceeds the configured retention limit.
+After saving settings, enable `Periodic mail` and set the mail interval in minutes. With the default 30-minute capture interval and 120-minute mail interval, the app normally sends one message containing up to six photos. Sent photos are retained in `Pictures/WindowMonitor`; the app deletes oldest local photos only when the phone storage backing that folder has 5% free space or less.
 
 Mail settings are stored in app-local preferences. Use upgrade installs (`adb install -r`) to preserve them; uninstalling or clearing app data removes the saved SMTP information.
 

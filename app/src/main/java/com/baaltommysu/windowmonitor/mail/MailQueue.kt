@@ -40,7 +40,7 @@ class MailQueue(private val context: Context) {
         return try {
             store.appendLog(action, "开始，照片数量=${pendingPhotos.size}，文件=${pendingPhotos.joinToString { it.name }}")
             val response = sender.sendCameraReport(config, pendingPhotos)
-            repository.trimCache(MaxStoredPhotos)
+            logStorageCleanup(action, repository.deleteOldestPhotosIfStorageLow())
             store.lastSendTime = Instant.now().toString()
             AppLogger.d(
                 Tag,
@@ -58,10 +58,14 @@ class MailQueue(private val context: Context) {
         }
     }
 
+    private fun logStorageCleanup(action: String, deletedCount: Int) {
+        if (deletedCount <= 0) return
+        store.appendLog(action, "存储剩余空间不高于5%，已删除最旧照片${deletedCount}张")
+    }
+
     companion object {
         private val SendLock = Any()
         private const val Tag = "MailQueue"
         private const val MaxAttachmentsPerMail = 6
-        private const val MaxStoredPhotos = 500
     }
 }

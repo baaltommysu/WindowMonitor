@@ -165,7 +165,7 @@ class CameraCaptureForegroundService : LifecycleService() {
 
                 val capturedPhoto = captureUsablePhoto()
                 store.lastPhotoTime = Instant.now().toString()
-                repository.trimCache(MaxStoredPhotos)
+                logStorageCleanup(repository.deleteOldestPhotosIfStorageLow())
 
                 AppLogger.d(Tag, "capture saved to Pictures/WindowMonitor: ${capturedPhoto.name}")
                 store.appendLog("拍照", "成功，文件=${capturedPhoto.name}")
@@ -231,6 +231,11 @@ class CameraCaptureForegroundService : LifecycleService() {
         WorkScheduler.scheduleNextMailAlarm(this)
     }
 
+    private fun logStorageCleanup(deletedCount: Int) {
+        if (deletedCount <= 0) return
+        store.appendLog("存储清理", "剩余空间不高于5%，已删除最旧照片${deletedCount}张")
+    }
+
     private fun hasCameraPermission(): Boolean {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
@@ -274,7 +279,6 @@ class CameraCaptureForegroundService : LifecycleService() {
         private const val Tag = "CameraService"
         private const val ChannelId = "camera_capture"
         private const val NotificationId = 1001
-        private const val MaxStoredPhotos = 500
         private const val MaxCaptureAttempts = 3
         private const val CaptureRetryDelayMillis = 2_000L
         private const val PhotoReadAttempts = 8

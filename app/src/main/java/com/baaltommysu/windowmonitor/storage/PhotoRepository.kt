@@ -25,9 +25,6 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private const val WatermarkPaddingPx = 24f
-private const val WatermarkTextSizePx = 42f
-
 data class PhotoTarget(
     val collectionUri: Uri,
     val contentValues: ContentValues,
@@ -390,7 +387,7 @@ private fun Bitmap.orientForExif(orientation: Int): Bitmap {
 private fun Canvas.drawTimestamp(timestamp: String) {
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = WatermarkTextSizePx
+        textSize = WatermarkStyle.TextSizePx
         style = Paint.Style.FILL
         setShadowLayer(3f, 1f, 1f, Color.BLACK)
     }
@@ -400,10 +397,10 @@ private fun Canvas.drawTimestamp(timestamp: String) {
         color = Color.argb(150, 0, 0, 0)
         style = Paint.Style.FILL
     }
-    val left = WatermarkPaddingPx
-    val top = height - bounds.height() - WatermarkPaddingPx * 2
-    val right = left + bounds.width() + WatermarkPaddingPx
-    val bottom = height - WatermarkPaddingPx
-    drawRect(left - WatermarkPaddingPx / 2, top, right, bottom, backgroundPaint)
-    drawText(timestamp, left, bottom - WatermarkPaddingPx / 2, textPaint)
+    val left = WatermarkStyle.PaddingPx
+    val top = height - bounds.height() - WatermarkStyle.PaddingPx * 2
+    val right = left + bounds.width() + WatermarkStyle.PaddingPx
+    val bottom = height - WatermarkStyle.PaddingPx
+    drawRect(left - WatermarkStyle.PaddingPx / 2, top, right, bottom, backgroundPaint)
+    drawText(timestamp, left, bottom - WatermarkStyle.PaddingPx / 2, textPaint)
 }

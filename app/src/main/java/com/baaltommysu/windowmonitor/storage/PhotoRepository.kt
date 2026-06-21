@@ -7,8 +7,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -98,8 +100,10 @@ class PhotoRepository(private val context: Context) {
         val uri = resolvePhotoUri(photo)
         val original = openPhotoInputStream(uri, photo.name)?.use { BitmapFactory.decodeStream(it) }
             ?: throw IllegalStateException("Could not decode captured photo")
-        val bitmap = original.copy(Bitmap.Config.ARGB_8888, true)
-        if (bitmap !== original) original.recycle()
+        val oriented = original.orientForExif(readExifOrientation(uri, photo.name))
+        if (oriented !== original) original.recycle()
+        val bitmap = oriented.copy(Bitmap.Config.ARGB_8888, true)
+        if (bitmap !== oriented) oriented.recycle()
 
         val timestamp = WatermarkFormatter.format(capturedAt.atZone(ZoneId.systemDefault()))
         Canvas(bitmap).drawTimestamp(timestamp)
@@ -274,6 +278,25 @@ class PhotoRepository(private val context: Context) {
             .getOrDefault(0L)
     }
 
+    private fun readExifOrientation(uri: Uri, name: String): Int {
+        val contentOrientation = runCatching {
+            resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+                ExifInterface(descriptor.fileDescriptor).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            }
+        }.getOrNull()
+        if (contentOrientation != null) return contentOrientation
+
+        return runCatching {
+            ExifInterface(photoFile(name).absolutePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+    }
+
     fun deleteOldestPhotosIfStorageLow(): Int {
         if (!isStorageLow()) return 0
 
@@ -349,6 +372,19 @@ private fun Bitmap.measureQuality(
         darkRatioPercent = dark * 100 / count,
         brightRatioPercent = bright * 100 / count
     )
+}
+
+private fun Bitmap.orientForExif(orientation: Int): Bitmap {
+    val transform = ExifOrientationPolicy.transformFor(orientation)
+    if (!transform.requiresTransform) return this
+
+    val matrix = Matrix().apply {
+        setRotate(transform.rotationDegrees)
+        if (transform.mirrorHorizontally) {
+            postScale(-1f, 1f)
+        }
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 }
 
 private fun Canvas.drawTimestamp(timestamp: String) {

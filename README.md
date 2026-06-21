@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.3.4`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.3.5`.
 
 ## Recent Change Summary
 
+- `0.3.5`: fixed upside-down captured photos by reading the JPEG EXIF orientation before adding the timestamp overlay, rotating pixels to the correct orientation, and then saving the normalized image.
 - `0.3.4`: changed photo retention from a fixed 500-photo cap to storage-pressure cleanup. Captured photos are kept unless the phone storage backing `Pictures/WindowMonitor` reaches 5% free space or lower; only then does the app delete the oldest photos until free space rises above that threshold.
 - `0.3.3`: removed abandoned code paths: the old periodic `CameraWorker`, unused command polling and FCM placeholders, unused heartbeat mail worker/manager, and the deprecated camera-service mail entry point. Legacy WorkManager names are still canceled so old scheduled work is cleaned up when the app starts.
 - `b8c8d2f` / `5a20567`: updated the project to `0.3.2`, documented the current runtime model, and moved periodic monitoring toward a long-lived foreground camera service. This keeps the camera service running after the app leaves the screen and avoids Android 14 rejecting a new background start of a `camera` foreground service.

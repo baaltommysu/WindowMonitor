@@ -1,7 +1,11 @@
 package com.baaltommysu.windowmonitor.camera
 
 import android.content.Context
+import android.hardware.SensorManager
 import android.util.Size
+import android.view.OrientationEventListener
+import android.view.Surface
+import android.view.WindowManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -12,6 +16,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.baaltommysu.windowmonitor.storage.CapturedPhoto
 import com.baaltommysu.windowmonitor.storage.PhotoTarget
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
@@ -21,14 +26,17 @@ import kotlin.coroutines.suspendCoroutine
 class CameraManager(private val context: Context) {
     suspend fun capturePhoto(owner: LifecycleOwner, target: PhotoTarget): CapturedPhoto {
         val cameraProvider = context.awaitCameraProvider()
+        val targetRotation = context.awaitTargetRotation()
         val imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setTargetRotation(targetRotation)
             .build()
         imageCapture.flashMode = ImageCapture.FLASH_MODE_OFF
         val warmedFrames = AtomicInteger(0)
         val analysis = ImageAnalysis.Builder()
             .setTargetResolution(Size(640, 480))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setTargetRotation(targetRotation)
             .build()
             .apply {
                 setAnalyzer(ContextCompat.getMainExecutor(context)) { image ->
@@ -85,6 +93,32 @@ class CameraManager(private val context: Context) {
         delay(ExposureSettleMillis)
     }
 
+    private suspend fun Context.awaitTargetRotation(): Int {
+        val displayRotation = getSystemService(WindowManager::class.java)
+            ?.defaultDisplay
+            ?.rotation
+            ?: Surface.ROTATION_0
+        return withTimeoutOrNull(OrientationReadTimeoutMillis) {
+            suspendCancellableCoroutine { continuation ->
+                val listener = object : OrientationEventListener(this@awaitTargetRotation, SensorManager.SENSOR_DELAY_NORMAL) {
+                    override fun onOrientationChanged(orientation: Int) {
+                        val targetRotation = CaptureRotationPolicy.targetRotationFor(orientation) ?: return
+                        if (continuation.isActive) {
+                            disable()
+                            continuation.resume(targetRotation)
+                        }
+                    }
+                }
+                continuation.invokeOnCancellation { listener.disable() }
+                if (listener.canDetectOrientation()) {
+                    listener.enable()
+                } else {
+                    continuation.resume(displayRotation)
+                }
+            }
+        } ?: displayRotation
+    }
+
     private suspend fun Context.awaitCameraProvider(): ProcessCameraProvider {
         return suspendCoroutine { continuation ->
             val future = ProcessCameraProvider.getInstance(this)
@@ -106,5 +140,6 @@ class CameraManager(private val context: Context) {
         private const val FramePollMillis = 80L
         private const val FrameWarmupTimeoutMillis = 4_000L
         private const val ExposureSettleMillis = 1_200L
+        private const val OrientationReadTimeoutMillis = 750L
     }
 }

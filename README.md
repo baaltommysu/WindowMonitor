@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.3.6`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.3.7`.
 
 ## Recent Change Summary
 
+- `0.3.7`: fixed sideways photos when the device rotation lock disagrees with its physical pose. Each capture now samples the orientation sensor before binding CameraX and applies that result to both `ImageCapture` and `ImageAnalysis`; it falls back to display rotation only if the sensor is unavailable.
 - `0.3.6`: increased the captured-photo timestamp watermark from 42px to 72px and increased its padding for better readability on full-resolution images.
 - `0.3.5`: fixed upside-down captured photos by reading the JPEG EXIF orientation before adding the timestamp overlay, rotating pixels to the correct orientation, and then saving the normalized image.
 - `0.3.4`: changed photo retention from a fixed 500-photo cap to storage-pressure cleanup. Captured photos are kept unless the phone storage backing `Pictures/WindowMonitor` reaches 5% free space or lower; only then does the app delete the oldest photos until free space rises above that threshold.

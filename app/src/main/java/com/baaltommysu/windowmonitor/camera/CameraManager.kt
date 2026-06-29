@@ -1,11 +1,18 @@
 package com.baaltommysu.windowmonitor.camera
 
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.SensorManager
+import android.os.Build
+import android.util.Range
 import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.WindowManager
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -15,6 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.baaltommysu.windowmonitor.storage.CapturedPhoto
 import com.baaltommysu.windowmonitor.storage.PhotoTarget
+import com.baaltommysu.windowmonitor.util.AppLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -47,12 +55,13 @@ class CameraManager(private val context: Context) {
 
         try {
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
+            val camera = cameraProvider.bindToLifecycle(
                 owner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
+                widestBackCameraSelector(),
                 imageCapture,
                 analysis
             )
+            camera.applyPreferredWideZoom()
             waitForWarmFrames(warmedFrames)
 
             val outputOptions = ImageCapture.OutputFileOptions.Builder(
@@ -91,6 +100,85 @@ class CameraManager(private val context: Context) {
             true
         }
         delay(ExposureSettleMillis)
+    }
+
+    private fun widestBackCameraSelector(): CameraSelector {
+        return CameraSelector.Builder()
+            .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+            .addCameraFilter { cameraInfos ->
+                val candidates = cameraInfos.mapNotNull { cameraInfo ->
+                    cameraInfo.toLensCandidateOrNull()?.let { candidate ->
+                        candidate to cameraInfo
+                    }
+                }
+                val selected = CameraLensSelection.chooseWidestBackCamera(candidates.map { it.first })
+                val selectedInfo = selected?.let { candidate ->
+                    candidates.firstOrNull { it.first.cameraId == candidate.cameraId }?.second
+                }
+                if (selected == null || selectedInfo == null) {
+                    AppLogger.d(Tag, "wide camera selection fallback: no usable back camera metadata")
+                    cameraInfos
+                } else {
+                    AppLogger.d(
+                        Tag,
+                        "selected back camera id=${selected.cameraId} " +
+                            "focal=${selected.focalLengthsMm.joinToString()} " +
+                            "minZoom=${selected.minZoomRatio ?: 1f} " +
+                            "effectiveWideFocal=${selected.effectiveWideFocalLengthMm}"
+                    )
+                    listOf(selectedInfo)
+                }
+            }
+            .build()
+    }
+
+    private fun Camera.applyPreferredWideZoom() {
+        val candidate = cameraInfo.toLensCandidateOrNull() ?: return
+        val zoomRatio = CameraLensSelection.preferredZoomRatio(candidate) ?: return
+        val zoomRequest = cameraControl.setZoomRatio(zoomRatio)
+        zoomRequest.addListener(
+            {
+                runCatching { zoomRequest.get() }
+                    .onSuccess {
+                        AppLogger.d(Tag, "applied wide zoom ratio=$zoomRatio camera=${candidate.cameraId}")
+                    }
+                    .onFailure { error ->
+                        AppLogger.e(Tag, "wide zoom request failed camera=${candidate.cameraId}", error)
+                    }
+            },
+            ContextCompat.getMainExecutor(context)
+        )
+        AppLogger.d(Tag, "requested wide zoom ratio=$zoomRatio camera=${candidate.cameraId}")
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    private fun CameraInfo.toLensCandidateOrNull(): CameraLensCandidate? {
+        return runCatching {
+            val camera2Info = Camera2CameraInfo.from(this)
+            val lensFacing = camera2Info.getCameraCharacteristic(CameraCharacteristics.LENS_FACING)
+            val focalLengths = camera2Info
+                .getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                ?.toList()
+                .orEmpty()
+            val minZoomRatio = camera2Info.zoomRatioRangeOrNull()?.lower
+            CameraLensCandidate(
+                cameraId = camera2Info.cameraId,
+                isBackFacing = lensFacing == CameraCharacteristics.LENS_FACING_BACK,
+                focalLengthsMm = focalLengths,
+                minZoomRatio = minZoomRatio,
+            )
+        }.onFailure { error ->
+            AppLogger.e(Tag, "could not read camera metadata", error)
+        }.getOrNull()
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+    private fun Camera2CameraInfo.zoomRatioRangeOrNull(): Range<Float>? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getCameraCharacteristic(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        } else {
+            null
+        }
     }
 
     private suspend fun Context.awaitTargetRotation(): Int {
@@ -136,6 +224,7 @@ class CameraManager(private val context: Context) {
     }
 
     companion object {
+        private const val Tag = "CameraManager"
         private const val WarmupFrameCount = 12
         private const val FramePollMillis = 80L
         private const val FrameWarmupTimeoutMillis = 4_000L

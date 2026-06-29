@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.3.8`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.3.9`.
 
 ## Recent Change Summary
 
+- `0.3.9`: camera capture now prefers the widest CameraX-visible rear camera by Camera2 focal-length metadata, requests the minimum zoom ratio when a selected logical camera supports less than 1x zoom, and logs the selected camera id/focal length/zoom. It falls back to the default rear camera path when the device does not expose a wider public camera.
 - `0.3.8`: added a long-lived mail audit log in app preferences. It records WorkManager scheduling, alarm scheduling, alarm delivery, camera-service mail triggers, manual sends, SMTP start, SMTP accepted responses, and SMTP failures so delayed mail can be separated from phone-side send failures.
 - `0.3.7`: fixed sideways photos when the device rotation lock disagrees with its physical pose. Each capture now samples the orientation sensor before binding CameraX and applies that result to both `ImageCapture` and `ImageAnalysis`; it falls back to display rotation only if the sensor is unavailable.
 - `0.3.6`: increased the captured-photo timestamp watermark from 42px to 72px and increased its padding for better readability on full-resolution images.
@@ -241,6 +242,7 @@ sqlite3 /tmp/windowmonitor-workdb "select WorkName.name, WorkSpec.worker_class_n
 app/src/main/java/com/baaltommysu/windowmonitor/
 ├── MainActivity.kt
 ├── camera/
+│   ├── CameraLensSelection.kt
 │   └── CameraManager.kt
 ├── mail/
 │   ├── MailQueue.kt
@@ -268,5 +270,6 @@ app/src/main/java/com/baaltommysu/windowmonitor/
 
 - SMTP credentials are stored in app-local preferences for the current prototype.
 - WorkManager periodic mail delivery uses Android's minimum periodic interval, so values below 15 minutes are rounded up. Alarm scheduling is used alongside it for the active periodic mail path.
+- The vivo X Note test device currently exposes only public camera IDs `0` and `1` to CameraX; capture connects to rear camera `0`. The app will automatically choose a wider public rear camera if the device exposes one through CameraX/Camera2 metadata.
 - The app is intended for personal testing and non-Play distribution.
 - Long-term camera use may still be affected by vendor power management unless the app is excluded from battery optimization and allowed to run in the background.

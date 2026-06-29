@@ -165,7 +165,10 @@ class MainActivity : ComponentActivity() {
     private fun sendEmailNow() {
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                MailQueue(this@MainActivity).flushPending("手动发送邮件")
+                MailQueue(this@MainActivity).flushPending(
+                    action = "手动发送邮件",
+                    source = "manual"
+                )
             }
             refreshUiState()
         }

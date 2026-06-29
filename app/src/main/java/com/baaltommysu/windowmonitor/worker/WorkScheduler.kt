@@ -14,6 +14,7 @@ import com.baaltommysu.windowmonitor.mail.MailDeliveryPolicy
 import com.baaltommysu.windowmonitor.receiver.AlarmReceiver
 import com.baaltommysu.windowmonitor.service.CameraCaptureForegroundService
 import com.baaltommysu.windowmonitor.util.PreferenceStore
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 object WorkScheduler {
@@ -61,8 +62,9 @@ object WorkScheduler {
             disablePeriodicMail(context)
             return
         }
+        val periodMinutes = store.mailIntervalMinutes.coerceAtLeast(15).toLong()
         val request = PeriodicWorkRequestBuilder<MailRetryWorker>(
-            store.mailIntervalMinutes.coerceAtLeast(15).toLong(),
+            periodMinutes,
             TimeUnit.MINUTES
         ).setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
             .build()
@@ -71,10 +73,20 @@ object WorkScheduler {
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
+        store.appendMailAudit(
+            source = "workmanager",
+            event = "scheduled",
+            detail = "periodMinutes=$periodMinutes network=connected"
+        )
         scheduleNextMailAlarm(context)
     }
 
     fun disablePeriodicMail(context: Context) {
+        PreferenceStore(context).appendMailAudit(
+            source = "scheduler",
+            event = "disabled",
+            detail = "periodicMail=false"
+        )
         WorkManager.getInstance(context).cancelUniqueWork(PeriodicMailWorkName)
         cancelMailAlarm(context)
     }
@@ -112,6 +124,12 @@ object WorkScheduler {
         ).coerceAtLeast(MinAlarmDelayMillis)
         scheduleAlarm(context, ActionMailAlarm, MailAlarmRequestCode, delayMillis)
         store.appendLog("定时邮件", "已安排下次唤醒，约${delayMillis / 60_000}分钟后")
+        store.appendMailAudit(
+            source = "alarm",
+            event = "scheduled",
+            detail = "delayMillis=$delayMillis intervalMinutes=${store.mailIntervalMinutes} lastSendTime=${store.lastSendTime.ifBlank { "none" }}",
+            plannedTime = Instant.now().plusMillis(delayMillis)
+        )
     }
 
     private fun scheduleAlarm(context: Context, action: String, requestCode: Int, delayMillis: Long) {

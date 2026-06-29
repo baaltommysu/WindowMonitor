@@ -30,6 +30,11 @@ class MailDeliveryForegroundService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        store.appendMailAudit(
+            source = "alarm-service",
+            event = "service_start",
+            detail = "startId=$startId"
+        )
         if (!promoteToForeground()) {
             return Service.START_NOT_STICKY
         }
@@ -40,7 +45,8 @@ class MailDeliveryForegroundService : LifecycleService() {
                 withContext(Dispatchers.IO) {
                     MailQueue(this@MailDeliveryForegroundService).flushPending(
                         action = "周期发送邮件",
-                        enforceInterval = true
+                        enforceInterval = true,
+                        source = "alarm-service"
                     )
                 }
             } finally {
@@ -75,6 +81,11 @@ class MailDeliveryForegroundService : LifecycleService() {
         val reason = error.message ?: error.javaClass.simpleName
         store.markFailure(reason)
         store.appendLog("周期发送邮件", "失败，原因=系统限制邮件前台服务启动：$reason")
+        store.appendMailAudit(
+            source = "alarm-service",
+            event = "foreground_start_failed",
+            detail = "reason=$reason"
+        )
         WorkScheduler.scheduleNextMailAlarm(this)
         stopSelf()
     }
@@ -134,6 +145,11 @@ class MailDeliveryForegroundService : LifecycleService() {
             val store = PreferenceStore(context)
             store.markFailure(reason)
             store.appendLog("周期发送邮件", "失败，原因=系统限制邮件前台服务启动：$reason")
+            store.appendMailAudit(
+                source = "alarm-service",
+                event = "foreground_start_failed",
+                detail = "reason=$reason"
+            )
             WorkScheduler.scheduleNextMailAlarm(context)
         }
     }

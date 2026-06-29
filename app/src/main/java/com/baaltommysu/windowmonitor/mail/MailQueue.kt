@@ -11,22 +11,41 @@ class MailQueue(private val context: Context) {
     private val repository = PhotoRepository(context)
     private val sender = SmtpSender(context)
 
-    fun flushPending(action: String = "发送邮件", enforceInterval: Boolean = false): Boolean {
+    fun flushPending(
+        action: String = "发送邮件",
+        enforceInterval: Boolean = false,
+        source: String = action
+    ): Boolean {
         synchronized(SendLock) {
-            return flushPendingLocked(action, enforceInterval)
+            return flushPendingLocked(action, enforceInterval, source)
         }
     }
 
-    private fun flushPendingLocked(action: String, enforceInterval: Boolean): Boolean {
+    private fun flushPendingLocked(action: String, enforceInterval: Boolean, source: String): Boolean {
+        store.appendMailAudit(
+            source = source,
+            event = "flush_started",
+            detail = "action=$action enforceInterval=$enforceInterval"
+        )
         val config = SmtpConfig.from(store)
         if (!config.isConfigured) {
             val reason = "SMTP is not configured"
             store.markFailure(reason)
             store.appendLog(action, "失败，原因=$reason")
+            store.appendMailAudit(
+                source = source,
+                event = "not_configured",
+                detail = "action=$action"
+            )
             return false
         }
         if (enforceInterval && !MailDeliveryPolicy.isDue(store.lastSendTime, store.mailIntervalMinutes)) {
             store.appendLog(action, "跳过，未到发送周期")
+            store.appendMailAudit(
+                source = source,
+                event = "skip_not_due",
+                detail = "lastSendTime=${store.lastSendTime.ifBlank { "none" }} intervalMinutes=${store.mailIntervalMinutes}"
+            )
             return true
         }
 
@@ -34,26 +53,49 @@ class MailQueue(private val context: Context) {
         AppLogger.d(Tag, "flush pending count=${pendingPhotos.size}")
         if (pendingPhotos.isEmpty()) {
             store.appendLog(action, "跳过，没有待发送照片")
+            store.appendMailAudit(
+                source = source,
+                event = "skip_no_photos",
+                detail = "action=$action"
+            )
             return true
         }
 
         return try {
-            store.appendLog(action, "开始，照片数量=${pendingPhotos.size}，文件=${pendingPhotos.joinToString { it.name }}")
+            val files = pendingPhotos.joinToString { it.name }
+            store.appendLog(action, "开始，照片数量=${pendingPhotos.size}，文件=$files")
+            store.appendMailAudit(
+                source = source,
+                event = "smtp_started",
+                detail = "host=${config.host}:${config.port} attachments=${pendingPhotos.size} files=$files"
+            )
             val response = sender.sendCameraReport(config, pendingPhotos)
             logStorageCleanup(action, repository.deleteOldestPhotosIfStorageLow())
-            store.lastSendTime = Instant.now().toString()
+            val acceptedAt = Instant.now()
+            store.lastSendTime = acceptedAt.toString()
             AppLogger.d(
                 Tag,
-                "sent photos=${pendingPhotos.joinToString { it.name }} response=$response"
+                "sent photos=$files response=$response"
             )
             store.markSuccess()
             store.appendLog(action, "SMTP已接收/排队，返回=$response，照片已保留；这不代表Gmail已投递")
+            store.appendMailAudit(
+                source = source,
+                event = "smtp_accepted",
+                detail = "response=$response attachments=${pendingPhotos.size} files=$files",
+                actualTime = acceptedAt
+            )
             true
         } catch (error: Exception) {
             AppLogger.e(Tag, "mail send failed photos=${pendingPhotos.joinToString { it.name }}", error)
             val reason = error.message ?: "Mail send failed"
             store.markFailure(reason)
             store.appendLog(action, "失败，原因=$reason")
+            store.appendMailAudit(
+                source = source,
+                event = "smtp_failed",
+                detail = "reason=$reason"
+            )
             false
         }
     }

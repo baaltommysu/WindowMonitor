@@ -32,6 +32,10 @@ class PreferenceStore(context: Context) {
         get() = formatOperationLog(prefs.getString(Keys.OperationLog, "") ?: "")
         set(value) = prefs.edit().putString(Keys.OperationLog, value).apply()
 
+    var mailAuditLog: String
+        get() = prefs.getString(Keys.MailAuditLog, "") ?: ""
+        set(value) = prefs.edit().putString(Keys.MailAuditLog, value).apply()
+
     var monitoringEnabled: Boolean
         get() = prefs.getBoolean(Keys.MonitoringEnabled, false)
         set(value) = prefs.edit().putBoolean(Keys.MonitoringEnabled, value).apply()
@@ -90,6 +94,26 @@ class PreferenceStore(context: Context) {
             .joinToString("\n")
     }
 
+    fun appendMailAudit(
+        source: String,
+        event: String,
+        detail: String = "",
+        plannedTime: Instant? = null,
+        actualTime: Instant = Instant.now()
+    ) {
+        val entry = MailAuditFormatter.format(
+            actualTime = actualTime,
+            source = source,
+            event = event,
+            plannedTime = plannedTime,
+            detail = detail
+        )
+        val currentLog = prefs.getString(Keys.MailAuditLog, "") ?: ""
+        mailAuditLog = (listOf(entry) + currentLog.lines().filter { it.isNotBlank() })
+            .take(MaxMailAuditLines)
+            .joinToString("\n")
+    }
+
     private fun formatOperationLog(log: String): String {
         return log.lines().joinToString("\n") { line ->
             val separator = " | "
@@ -112,6 +136,7 @@ class PreferenceStore(context: Context) {
         const val LastFailureReason = "last_failure_reason"
         const val LastFailureTime = "last_failure_time"
         const val OperationLog = "operation_log"
+        const val MailAuditLog = "mail_audit_log"
         const val MonitoringEnabled = "monitoring_enabled"
         const val MailDeliveryEnabled = "mail_delivery_enabled"
         const val CaptureIntervalMinutes = "capture_interval_minutes"
@@ -126,6 +151,7 @@ class PreferenceStore(context: Context) {
 
     companion object {
         private const val MaxLogLines = 80
+        private const val MaxMailAuditLines = 360
         private val DisplayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     }
 }

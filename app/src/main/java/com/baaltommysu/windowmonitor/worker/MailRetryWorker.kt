@@ -13,13 +13,27 @@ class MailRetryWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val store = PreferenceStore(applicationContext)
+        store.appendMailAudit(
+            source = "workmanager",
+            event = "triggered",
+            detail = "attempt=$runAttemptCount"
+        )
         val hasPhotos = PhotoRepository(applicationContext).listPendingPhotosOldestFirst().isNotEmpty()
         if (!hasPhotos && store.monitoringEnabled && runAttemptCount < MaxEmptyRetries) {
             store.appendLog("周期发送邮件", "暂时没有待发送照片，稍后重试，第${runAttemptCount + 1}次")
+            store.appendMailAudit(
+                source = "workmanager",
+                event = "retry_no_photos",
+                detail = "attempt=${runAttemptCount + 1} monitoringEnabled=${store.monitoringEnabled}"
+            )
             return Result.retry()
         }
 
-        val sentOrSkipped = MailQueue(applicationContext).flushPending("周期发送邮件", enforceInterval = true)
+        val sentOrSkipped = MailQueue(applicationContext).flushPending(
+            action = "周期发送邮件",
+            enforceInterval = true,
+            source = "workmanager"
+        )
         WorkScheduler.scheduleNextMailAlarm(applicationContext)
         return if (sentOrSkipped) {
             Result.success()

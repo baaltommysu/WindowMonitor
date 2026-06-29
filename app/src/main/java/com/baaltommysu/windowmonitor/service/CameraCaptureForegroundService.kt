@@ -222,10 +222,16 @@ class CameraCaptureForegroundService : LifecycleService() {
         if (!store.mailDeliveryEnabled || !SmtpConfig.from(store).isConfigured) return
         if (!MailDeliveryPolicy.isDue(store.lastSendTime, store.mailIntervalMinutes)) return
         store.appendLog("周期发送邮件", "拍照后检测到已到发送周期，前台服务直接发送")
+        store.appendMailAudit(
+            source = "camera-service",
+            event = "triggered",
+            detail = "reason=capture_completed lastSendTime=${store.lastSendTime.ifBlank { "none" }} intervalMinutes=${store.mailIntervalMinutes}"
+        )
         withContext(Dispatchers.IO) {
             MailQueue(this@CameraCaptureForegroundService).flushPending(
                 action = "周期发送邮件",
-                enforceInterval = true
+                enforceInterval = true,
+                source = "camera-service"
             )
         }
         WorkScheduler.scheduleNextMailAlarm(this)

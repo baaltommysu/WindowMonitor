@@ -55,9 +55,8 @@ data class PhotoQuality(
     val isUsable: Boolean
         get() = sizeBytes >= MinSizeBytes &&
             minOf(width, height) >= MinSidePx &&
-            darkRatioPercent < MaxDarkRatioPercent &&
             brightRatioPercent < MaxBrightRatioPercent &&
-            meanBrightness in MinMeanBrightness..MaxMeanBrightness
+            meanBrightness <= MaxMeanBrightness
 
     val summary: String
         get() = "size=${sizeBytes}B,dim=${width}x$height,mean=$meanBrightness,dark=${darkRatioPercent}%,bright=${brightRatioPercent}%"
@@ -65,9 +64,7 @@ data class PhotoQuality(
     companion object {
         private const val MinSizeBytes = 60_000L
         private const val MinSidePx = 480
-        private const val MaxDarkRatioPercent = 90
         private const val MaxBrightRatioPercent = 70
-        private const val MinMeanBrightness = 12
         private const val MaxMeanBrightness = 242
     }
 }

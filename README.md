@@ -2,10 +2,12 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.3.9`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.4.1`.
 
 ## Recent Change Summary
 
+- `0.4.1`: periodic mail now combines the latest batch of up to six photos into one large JPEG contact sheet and sends that single image attachment, while keeping the original captured photos on the phone.
+- `0.4.0`: fixed missing overnight photos caused by the quality filter treating real low-light full-resolution captures as bad black frames. Full-size night photos are now kept even when most pixels are dark; tiny, undersized, unreadable, and severely overexposed captures are still rejected.
 - `0.3.9`: camera capture now prefers the widest CameraX-visible rear camera by Camera2 focal-length metadata, requests the minimum zoom ratio when a selected logical camera supports less than 1x zoom, and logs the selected camera id/focal length/zoom. It falls back to the default rear camera path when the device does not expose a wider public camera.
 - `0.3.8`: added a long-lived mail audit log in app preferences. It records WorkManager scheduling, alarm scheduling, alarm delivery, camera-service mail triggers, manual sends, SMTP start, SMTP accepted responses, and SMTP failures so delayed mail can be separated from phone-side send failures.
 - `0.3.7`: fixed sideways photos when the device rotation lock disagrees with its physical pose. Each capture now samples the orientation sensor before binding CameraX and applies that result to both `ImageCapture` and `ImageAnalysis`; it falls back to display rotation only if the sensor is unavailable.

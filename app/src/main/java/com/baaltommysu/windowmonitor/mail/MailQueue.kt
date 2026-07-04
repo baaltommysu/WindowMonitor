@@ -67,7 +67,7 @@ class MailQueue(private val context: Context) {
             store.appendMailAudit(
                 source = source,
                 event = "smtp_started",
-                detail = "host=${config.host}:${config.port} attachments=${pendingPhotos.size} files=$files"
+                detail = "host=${config.host}:${config.port} photos=${pendingPhotos.size} attachments=1 files=$files"
             )
             val response = sender.sendCameraReport(config, pendingPhotos)
             logStorageCleanup(action, repository.deleteOldestPhotosIfStorageLow())
@@ -82,7 +82,7 @@ class MailQueue(private val context: Context) {
             store.appendMailAudit(
                 source = source,
                 event = "smtp_accepted",
-                detail = "response=$response attachments=${pendingPhotos.size} files=$files",
+                detail = "response=$response photos=${pendingPhotos.size} attachments=1 files=$files",
                 actualTime = acceptedAt
             )
             true

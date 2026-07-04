@@ -20,6 +20,20 @@ class PhotoQualityTest {
     }
 
     @Test
+    fun acceptsFullSizeNightPhoto() {
+        val quality = PhotoQuality(
+            sizeBytes = 7_000_000L,
+            width = 4080,
+            height = 3060,
+            meanBrightness = 9,
+            darkRatioPercent = 93,
+            brightRatioPercent = 0
+        )
+
+        assertTrue(quality.isUsable)
+    }
+
+    @Test
     fun rejectsOverExposedPhoto() {
         val quality = PhotoQuality(
             sizeBytes = 500_000L,

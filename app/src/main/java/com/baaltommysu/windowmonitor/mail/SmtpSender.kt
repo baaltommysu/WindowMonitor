@@ -3,11 +3,15 @@ package com.baaltommysu.windowmonitor.mail
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.util.Base64
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.storage.StoredPhoto
-import com.baaltommysu.windowmonitor.util.DeviceStatus
 import com.baaltommysu.windowmonitor.util.AppLogger
+import com.baaltommysu.windowmonitor.util.DeviceStatus
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.ByteArrayOutputStream
@@ -28,9 +32,11 @@ class SmtpSender(private val context: Context) {
         require(config.isConfigured) { "SMTP is not configured" }
         require(photos.isNotEmpty()) { "No pending photos to send" }
         val snapshot = DeviceStatus.read(context)
+        val attachment = buildCombinedAttachment(photos)
         val subject = "Camera Report (${photos.size} photos)"
         val body = buildString {
             appendLine("Photo Count: ${photos.size}")
+            appendLine("Attachment: ${attachment.name}")
             photos.forEachIndexed { index, photo ->
                 appendLine("Photo ${index + 1}: ${photo.name}, ${Instant.ofEpochMilli(photo.lastModifiedMillis)}")
             }
@@ -38,10 +44,15 @@ class SmtpSender(private val context: Context) {
             appendLine("Battery: ${snapshot.batteryPercent}%")
             appendLine("Storage Free: ${snapshot.storageFreeBytes} bytes")
         }
-        return send(config, subject, body, photos)
+        return send(config, subject, body, listOf(attachment))
     }
 
-    private fun send(config: SmtpConfig, subject: String, body: String, attachments: List<StoredPhoto>): String {
+    private fun send(
+        config: SmtpConfig,
+        subject: String,
+        body: String,
+        attachments: List<EmailAttachment>
+    ): String {
         AppLogger.d(Tag, "connecting smtp=${config.host}:${config.port} to=${config.to} attachments=${attachments.size}")
         return if (config.port == ImplicitTlsPort) {
             sendOverImplicitTls(config, subject, body, attachments)
@@ -54,7 +65,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachments: List<StoredPhoto>
+        attachments: List<EmailAttachment>
     ): String {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(config.host, config.port), ConnectTimeoutMillis)
@@ -86,7 +97,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachments: List<StoredPhoto>
+        attachments: List<EmailAttachment>
     ): String {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(config.host, config.port), ConnectTimeoutMillis)
@@ -108,7 +119,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachments: List<StoredPhoto>,
+        attachments: List<EmailAttachment>,
         reader: BufferedReader,
         writer: BufferedWriter
     ): String {
@@ -132,7 +143,7 @@ class SmtpSender(private val context: Context) {
         config: SmtpConfig,
         subject: String,
         body: String,
-        attachments: List<StoredPhoto>
+        attachments: List<EmailAttachment>
     ): String {
         val boundary = "wm-${UUID.randomUUID()}"
         return buildString {
@@ -151,22 +162,74 @@ class SmtpSender(private val context: Context) {
             appendLine(body)
             attachments.forEach { attachment ->
                 appendLine("--$boundary")
-                appendLine("Content-Type: image/jpeg; name=\"${attachment.name}\"")
+                appendLine("Content-Type: ${attachment.contentType}; name=\"${attachment.name}\"")
                 appendLine("Content-Disposition: attachment; filename=\"${attachment.name}\"")
                 appendLine("Content-Transfer-Encoding: base64")
                 appendLine()
-                val bytes = readCompressedAttachment(attachment)
-                AppLogger.d(
-                    Tag,
-                    "prepared attachment=${attachment.name} original=${attachment.sizeBytes} compressed=${bytes.size}"
-                )
-                appendLine(Base64.encodeToString(bytes, Base64.NO_WRAP).chunked(76).joinToString("\r\n"))
+                AppLogger.d(Tag, "prepared attachment=${attachment.name} bytes=${attachment.bytes.size}")
+                appendLine(Base64.encodeToString(attachment.bytes, Base64.NO_WRAP).chunked(76).joinToString("\r\n"))
             }
             appendLine("--$boundary--")
         }.replace("\n", "\r\n")
     }
 
-    private fun readCompressedAttachment(photo: StoredPhoto): ByteArray {
+    private fun buildCombinedAttachment(photos: List<StoredPhoto>): EmailAttachment {
+        val batch = composePhotoBatch(photos)
+        return try {
+            val name = "windowmonitor_${BatchNameFormatter.format(Instant.now())}_${photos.size}_photos.jpg"
+            val bytes = ByteArrayOutputStream().use { output ->
+                batch.compress(Bitmap.CompressFormat.JPEG, BatchJpegQuality, output)
+                output.toByteArray()
+            }
+            AppLogger.d(Tag, "prepared combined photo batch photos=${photos.size} bytes=${bytes.size}")
+            EmailAttachment(
+                name = name,
+                contentType = "image/jpeg",
+                bytes = bytes,
+            )
+        } finally {
+            batch.recycle()
+        }
+    }
+
+    private fun composePhotoBatch(photos: List<StoredPhoto>): Bitmap {
+        val grid = PhotoBatchLayout.gridFor(photos.size)
+        val bitmaps = photos.map(::readScaledPhotoBitmap)
+        return try {
+            val batch = Bitmap.createBitmap(
+                grid.columns * BatchCellWidthPx,
+                grid.rows * BatchCellHeightPx,
+                Bitmap.Config.ARGB_8888
+            )
+            val canvas = Canvas(batch).apply {
+                drawColor(Color.rgb(14, 18, 28))
+            }
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            bitmaps.forEachIndexed { index, bitmap ->
+                val column = index % grid.columns
+                val row = index / grid.columns
+                val cellLeft = column * BatchCellWidthPx
+                val cellTop = row * BatchCellHeightPx
+                val scale = minOf(
+                    BatchImageMaxWidthPx.toFloat() / bitmap.width.toFloat(),
+                    BatchImageMaxHeightPx.toFloat() / bitmap.height.toFloat(),
+                    1f
+                )
+                val width = bitmap.width * scale
+                val height = bitmap.height * scale
+                val left = cellLeft + (BatchCellWidthPx - width) / 2f
+                val top = cellTop + (BatchCellHeightPx - height) / 2f
+                canvas.drawBitmap(bitmap, null, RectF(left, top, left + width, top + height), paint)
+            }
+            batch
+        } finally {
+            bitmaps.forEach { bitmap ->
+                if (!bitmap.isRecycled) bitmap.recycle()
+            }
+        }
+    }
+
+    private fun readScaledPhotoBitmap(photo: StoredPhoto): Bitmap {
         val repository = PhotoRepository(context)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         val boundsStream = repository.openPhoto(photo)
@@ -175,40 +238,29 @@ class SmtpSender(private val context: Context) {
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Could not read photo dimensions" }
 
         val decodeOptions = BitmapFactory.Options().apply {
-            inSampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight)
+            inSampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, AttachmentMaxSidePx)
         }
         val bitmap = repository.openPhoto(photo)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
             ?: throw IllegalStateException("Could not decode photo attachment")
-        return bitmap.useCompressedJpeg()
+        return bitmap.scaleToMaxSide(AttachmentMaxSidePx)
     }
 
-    private fun Bitmap.useCompressedJpeg(): ByteArray {
-        val scaled = scaleToEmailSize()
-        return try {
-            ByteArrayOutputStream().use { output ->
-                scaled.compress(Bitmap.CompressFormat.JPEG, AttachmentJpegQuality, output)
-                output.toByteArray()
-            }
-        } finally {
-            if (scaled !== this) scaled.recycle()
-            recycle()
-        }
-    }
-
-    private fun Bitmap.scaleToEmailSize(): Bitmap {
+    private fun Bitmap.scaleToMaxSide(maxSidePx: Int): Bitmap {
         val longestSide = maxOf(width, height)
-        if (longestSide <= AttachmentMaxSidePx) return this
-        val scale = AttachmentMaxSidePx.toFloat() / longestSide.toFloat()
+        if (longestSide <= maxSidePx) return this
+        val scale = maxSidePx.toFloat() / longestSide.toFloat()
         val targetWidth = (width * scale).toInt().coerceAtLeast(1)
         val targetHeight = (height * scale).toInt().coerceAtLeast(1)
-        return Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+        val scaled = Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+        recycle()
+        return scaled
     }
 
-    private fun calculateSampleSize(width: Int, height: Int): Int {
+    private fun calculateSampleSize(width: Int, height: Int, targetSidePx: Int): Int {
         var sampleSize = 1
         var sampledWidth = width
         var sampledHeight = height
-        while (sampledWidth / 2 >= AttachmentMaxSidePx && sampledHeight / 2 >= AttachmentMaxSidePx) {
+        while (sampledWidth / 2 >= targetSidePx && sampledHeight / 2 >= targetSidePx) {
             sampleSize *= 2
             sampledWidth /= 2
             sampledHeight /= 2
@@ -253,7 +305,18 @@ class SmtpSender(private val context: Context) {
         private const val ConnectTimeoutMillis = 20_000
         private const val ReadTimeoutMillis = 60_000
         private const val AttachmentMaxSidePx = 1024
-        private const val AttachmentJpegQuality = 68
+        private const val BatchCellWidthPx = 1024
+        private const val BatchCellHeightPx = 768
+        private const val BatchImageMaxWidthPx = 984
+        private const val BatchImageMaxHeightPx = 728
+        private const val BatchJpegQuality = 76
+        private val BatchNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC)
         private const val Tag = "SmtpSender"
     }
 }
+
+private class EmailAttachment(
+    val name: String,
+    val contentType: String,
+    val bytes: ByteArray,
+)

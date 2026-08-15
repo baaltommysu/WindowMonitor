@@ -2,8 +2,6 @@ package com.baaltommysu.windowmonitor.util
 
 import android.content.Context
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 class PreferenceStore(context: Context) {
     private val prefs = context.getSharedPreferences("window_monitor_state", Context.MODE_PRIVATE)
@@ -126,7 +124,7 @@ class PreferenceStore(context: Context) {
     }
 
     private fun formatForDisplay(instant: Instant): String {
-        return DisplayFormatter.format(instant.atZone(ZoneId.systemDefault()))
+        return BeijingTime.format(instant)
     }
 
     private object Keys {
@@ -152,6 +150,5 @@ class PreferenceStore(context: Context) {
     companion object {
         private const val MaxLogLines = 80
         private const val MaxMailAuditLines = 360
-        private val DisplayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     }
 }

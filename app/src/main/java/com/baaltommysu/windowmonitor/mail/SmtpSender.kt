@@ -11,7 +11,9 @@ import android.util.Base64
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.storage.StoredPhoto
 import com.baaltommysu.windowmonitor.util.AppLogger
+import com.baaltommysu.windowmonitor.util.BeijingTime
 import com.baaltommysu.windowmonitor.util.DeviceStatus
+import com.baaltommysu.windowmonitor.util.StorageFormatter
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.ByteArrayOutputStream
@@ -21,8 +23,6 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -38,11 +38,11 @@ class SmtpSender(private val context: Context) {
             appendLine("Photo Count: ${photos.size}")
             appendLine("Attachment: ${attachment.name}")
             photos.forEachIndexed { index, photo ->
-                appendLine("Photo ${index + 1}: ${photo.name}, ${Instant.ofEpochMilli(photo.lastModifiedMillis)}")
+                appendLine("Photo ${index + 1}: ${photo.name}, captured ${BeijingTime.format(Instant.ofEpochMilli(photo.lastModifiedMillis))} (Beijing time)")
             }
             appendLine()
             appendLine("Battery: ${snapshot.batteryPercent}%")
-            appendLine("Storage Free: ${snapshot.storageFreeBytes} bytes")
+            appendLine("Storage Free: ${StorageFormatter.formatFreeSpace(snapshot.storageFreeBytes, snapshot.storageTotalBytes)}")
         }
         return send(config, subject, body, listOf(attachment))
     }
@@ -150,7 +150,7 @@ class SmtpSender(private val context: Context) {
             appendLine("From: ${config.from}")
             appendLine("To: ${config.to}")
             appendLine("Subject: $subject")
-            appendLine("Date: ${DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.now().atOffset(ZoneOffset.UTC))}")
+            appendLine("Date: ${BeijingTime.formatRfc1123(Instant.now())}")
             appendLine("Message-ID: <${UUID.randomUUID()}@windowmonitor.local>")
             appendLine("MIME-Version: 1.0")
             appendLine("Content-Type: multipart/mixed; boundary=\"$boundary\"")
@@ -176,7 +176,7 @@ class SmtpSender(private val context: Context) {
     private fun buildCombinedAttachment(photos: List<StoredPhoto>): EmailAttachment {
         val batch = composePhotoBatch(photos)
         return try {
-            val name = "windowmonitor_${BatchNameFormatter.format(Instant.now())}_${photos.size}_photos.jpg"
+            val name = "windowmonitor_${BeijingTime.formatFileName(Instant.now())}_${photos.size}_photos.jpg"
             val bytes = ByteArrayOutputStream().use { output ->
                 batch.compress(Bitmap.CompressFormat.JPEG, BatchJpegQuality, output)
                 output.toByteArray()
@@ -310,7 +310,6 @@ class SmtpSender(private val context: Context) {
         private const val BatchImageMaxWidthPx = 984
         private const val BatchImageMaxHeightPx = 728
         private const val BatchJpegQuality = 76
-        private val BatchNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss").withZone(ZoneOffset.UTC)
         private const val Tag = "SmtpSender"
     }
 }

@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.4.1`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.4.2`.
 
 ## Recent Change Summary
 
+- `0.4.2`: standardized all user-visible timestamps to Beijing time (`Asia/Shanghai`) and changed email storage reporting to readable GB/percentage values.
 - `0.4.1`: periodic mail now combines the latest batch of up to six photos into one large JPEG contact sheet and sends that single image attachment, while keeping the original captured photos on the phone.
 - `0.4.0`: fixed missing overnight photos caused by the quality filter treating real low-light full-resolution captures as bad black frames. Full-size night photos are now kept even when most pixels are dark; tiny, undersized, unreadable, and severely overexposed captures are still rejected.
 - `0.3.9`: camera capture now prefers the widest CameraX-visible rear camera by Camera2 focal-length metadata, requests the minimum zoom ratio when a selected logical camera supports less than 1x zoom, and logs the selected camera id/focal length/zoom. It falls back to the default rear camera path when the device does not expose a wider public camera.
@@ -34,7 +35,7 @@ The current target device is Android 14 on vivo X Note. Current app version: `0.
 - MediaStore decode through file descriptors for vivo Android 14 compatibility
 - Camera warmup using ImageCapture plus ImageAnalysis before taking a photo
 - In-app SMTP configuration form, defaulting to Sina SMTP
-- SMTP mail sender with up to six image attachments per message
+- SMTP mail sender with one combined JPEG containing up to six photos per message
 - Pending photo retry behavior when mail is not configured or sending fails
 - Boot receiver to restore monitoring after reboot
 

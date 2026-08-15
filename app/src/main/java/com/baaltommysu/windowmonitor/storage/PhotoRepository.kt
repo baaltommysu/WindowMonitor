@@ -21,9 +21,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import com.baaltommysu.windowmonitor.util.BeijingTime
 
 data class PhotoTarget(
     val collectionUri: Uri,
@@ -74,7 +72,7 @@ class PhotoRepository(private val context: Context) {
 
     fun createPhotoTarget(): PhotoTarget {
         val capturedAt = Instant.now()
-        val timestamp = LocalDateTime.ofInstant(capturedAt, ZoneId.systemDefault()).format(FileNameFormatter)
+        val timestamp = BeijingTime.formatFileName(capturedAt)
         val name = "photo_$timestamp.jpg"
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -99,7 +97,7 @@ class PhotoRepository(private val context: Context) {
         val bitmap = oriented.copy(Bitmap.Config.ARGB_8888, true)
         if (bitmap !== oriented) oriented.recycle()
 
-        val timestamp = WatermarkFormatter.format(capturedAt.atZone(ZoneId.systemDefault()))
+        val timestamp = BeijingTime.format(capturedAt)
         Canvas(bitmap).drawTimestamp(timestamp)
         openPhotoOutputStream(uri, photo.name)?.use { output ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
@@ -306,8 +304,6 @@ class PhotoRepository(private val context: Context) {
 
     companion object {
         private const val DirectoryName = "WindowMonitor"
-        private val FileNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
-        private val WatermarkFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
     }
 }
 

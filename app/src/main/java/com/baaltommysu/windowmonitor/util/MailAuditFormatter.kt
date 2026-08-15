@@ -14,10 +14,10 @@ object MailAuditFormatter {
         detail: String = ""
     ): String {
         return buildList {
-            add("actual=$actualTime")
+            add("actual=${BeijingTime.formatAudit(actualTime)}")
             add("source=${source.toToken()}")
             add("event=${event.toToken()}")
-            plannedTime?.let { add("planned=$it") }
+            plannedTime?.let { add("planned=${BeijingTime.formatAudit(it)}") }
             detail.toDetail().takeIf { it.isNotBlank() }?.let { add("detail=$it") }
         }.joinToString(" | ")
     }

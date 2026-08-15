@@ -50,16 +50,13 @@ import androidx.lifecycle.lifecycleScope
 import com.baaltommysu.windowmonitor.mail.MailQueue
 import com.baaltommysu.windowmonitor.storage.PhotoRepository
 import com.baaltommysu.windowmonitor.ui.theme.WindowMonitorTheme
+import com.baaltommysu.windowmonitor.util.BeijingTime
 import com.baaltommysu.windowmonitor.util.PreferenceStore
 import com.baaltommysu.windowmonitor.worker.WorkScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-
-private val DisplayTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 class MainActivity : ComponentActivity() {
     private lateinit var store: PreferenceStore
@@ -213,7 +210,7 @@ class MainActivity : ComponentActivity() {
     private fun formatTimeForDisplay(value: String): String {
         if (value.isBlank()) return ""
         return runCatching {
-            DisplayTimeFormatter.format(Instant.parse(value).atZone(ZoneId.systemDefault()))
+            BeijingTime.format(Instant.parse(value))
         }.getOrElse { value }
     }
 

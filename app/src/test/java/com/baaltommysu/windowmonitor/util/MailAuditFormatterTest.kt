@@ -16,10 +16,10 @@ class MailAuditFormatterTest {
             detail = "delayMillis=7200000"
         )
 
-        assertTrue(line.contains("actual=2026-06-29T01:00:00Z"))
+        assertTrue(line.contains("actual=2026-06-29 09:00:00 +08:00"))
         assertTrue(line.contains("source=alarm"))
         assertTrue(line.contains("event=scheduled"))
-        assertTrue(line.contains("planned=2026-06-29T03:00:00Z"))
+        assertTrue(line.contains("planned=2026-06-29 11:00:00 +08:00"))
         assertTrue(line.contains("detail=delayMillis=7200000"))
     }
 

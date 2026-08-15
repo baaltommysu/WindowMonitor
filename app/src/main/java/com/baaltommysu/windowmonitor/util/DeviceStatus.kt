@@ -8,7 +8,8 @@ import android.os.Environment
 
 data class DeviceSnapshot(
     val batteryPercent: Int,
-    val storageFreeBytes: Long
+    val storageFreeBytes: Long,
+    val storageTotalBytes: Long
 )
 
 object DeviceStatus {
@@ -19,7 +20,8 @@ object DeviceStatus {
         val percent = if (level >= 0 && scale > 0) (level * 100 / scale) else -1
         return DeviceSnapshot(
             batteryPercent = percent,
-            storageFreeBytes = Environment.getDataDirectory().freeSpace
+            storageFreeBytes = Environment.getDataDirectory().freeSpace,
+            storageTotalBytes = Environment.getDataDirectory().totalSpace
         )
     }
 }

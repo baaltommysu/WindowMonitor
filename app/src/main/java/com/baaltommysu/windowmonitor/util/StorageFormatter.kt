@@ -1,23 +1,14 @@
 package com.baaltommysu.windowmonitor.util
 
-import java.util.Locale
 import kotlin.math.roundToInt
 
 object StorageFormatter {
     fun formatBytes(bytes: Long): String {
         if (bytes < 0L) return "Unknown"
-        val units = arrayOf("B", "KB", "MB", "GB", "TB")
-        var value = bytes.toDouble()
-        var unitIndex = 0
-        while (value >= 1000.0 && unitIndex < units.lastIndex) {
-            value /= 1000.0
-            unitIndex += 1
-        }
-        return if (unitIndex == 0) {
-            "$bytes B"
-        } else {
-            String.format(Locale.US, "%.1f %s", value, units[unitIndex])
-        }
+        val gigabytes = bytes / Gigabyte
+        val megabytes = (bytes % Gigabyte) / Megabyte
+        val kilobytes = (bytes % Megabyte) / Kilobyte
+        return "${gigabytes}GB ${megabytes}MB ${kilobytes}KB"
     }
 
     fun formatFreeSpace(freeBytes: Long, totalBytes: Long): String {
@@ -29,4 +20,8 @@ object StorageFormatter {
             .coerceIn(0, 100)
         return "$freeText / $totalText (${percent}% free)"
     }
+
+    private const val Kilobyte = 1_000L
+    private const val Megabyte = 1_000_000L
+    private const val Gigabyte = 1_000_000_000L
 }

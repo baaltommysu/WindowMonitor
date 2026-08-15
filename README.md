@@ -2,10 +2,11 @@
 
 WindowMonitor is an Android camera monitoring app for local experiments. It keeps a foreground camera monitor alive, captures photos on a configurable minute interval, saves photos into the public Pictures library, and can periodically send pending photos by SMTP in batches.
 
-The current target device is Android 14 on vivo X Note. Current app version: `0.4.2`.
+The current target device is Android 14 on vivo X Note. Current app version: `0.4.3`.
 
 ## Recent Change Summary
 
+- `0.4.3`: changed email storage reporting to fixed `GB MB KB` dimensions with a remaining-space percentage for easier reading.
 - `0.4.2`: standardized all user-visible timestamps to Beijing time (`Asia/Shanghai`) and changed email storage reporting to readable GB/percentage values.
 - `0.4.1`: periodic mail now combines the latest batch of up to six photos into one large JPEG contact sheet and sends that single image attachment, while keeping the original captured photos on the phone.
 - `0.4.0`: fixed missing overnight photos caused by the quality filter treating real low-light full-resolution captures as bad black frames. Full-size night photos are now kept even when most pixels are dark; tiny, undersized, unreadable, and severely overexposed captures are still rejected.

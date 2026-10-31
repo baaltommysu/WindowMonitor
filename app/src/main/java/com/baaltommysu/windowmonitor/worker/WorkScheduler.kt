@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 object WorkScheduler {
     const val ActionCaptureAlarm = "com.baaltommysu.windowmonitor.ALARM_CAPTURE"
     const val ActionMailAlarm = "com.baaltommysu.windowmonitor.ALARM_MAIL"
+    const val ActionWake = "com.baaltommysu.windowmonitor.ACTION_WAKE"
 
     private const val PeriodicCameraWorkName = "periodic_camera_capture"
     private const val ImmediateCameraWorkName = "immediate_camera_capture"

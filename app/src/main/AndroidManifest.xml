@@ -70,5 +70,10 @@
             android:name=".receiver.AlarmReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <receiver
+            android:name=".receiver.WakeReceiver"
+            android:enabled="true"
+            android:exported="true" />
     </application>
 </manifest>

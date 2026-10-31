@@ -35,6 +35,16 @@ class MailDeliveryForegroundService : LifecycleService() {
             event = "service_start",
             detail = "startId=$startId"
         )
+        if (!store.mailDeliveryEnabled) {
+            store.appendMailAudit(
+                source = "alarm-service",
+                event = "skip_mail_disabled",
+                detail = "startId=$startId"
+            )
+            WorkScheduler.disablePeriodicMail(this)
+            stopSelf(startId)
+            return Service.START_NOT_STICKY
+        }
         if (!promoteToForeground()) {
             return Service.START_NOT_STICKY
         }

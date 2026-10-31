@@ -117,6 +117,9 @@ class CameraCaptureForegroundService : LifecycleService() {
         store.appendLog("监控", "拍照前台服务已保持运行")
         monitoringJob = lifecycleScope.launch {
             while (isActive && store.monitoringEnabled) {
+                // 防止系统静默丢弃闹钟，循环每次迭代都重排闹钟作为自愈兜底。
+                WorkScheduler.scheduleNextCaptureAlarm(this@CameraCaptureForegroundService)
+                WorkScheduler.scheduleNextMailAlarm(this@CameraCaptureForegroundService)
                 val waitMillis = CaptureSchedulePolicy.millisUntilDue(
                     lastPhotoTime = store.lastPhotoTime,
                     intervalMinutes = store.captureIntervalMinutes

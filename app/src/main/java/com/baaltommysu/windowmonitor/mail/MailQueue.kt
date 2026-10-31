@@ -14,14 +14,29 @@ class MailQueue(private val context: Context) {
     fun flushPending(
         action: String = "发送邮件",
         enforceInterval: Boolean = false,
-        source: String = action
+        source: String = action,
+        allowWhenMailDeliveryDisabled: Boolean = false
     ): Boolean {
         synchronized(SendLock) {
-            return flushPendingLocked(action, enforceInterval, source)
+            return flushPendingLocked(action, enforceInterval, source, allowWhenMailDeliveryDisabled)
         }
     }
 
-    private fun flushPendingLocked(action: String, enforceInterval: Boolean, source: String): Boolean {
+    private fun flushPendingLocked(
+        action: String,
+        enforceInterval: Boolean,
+        source: String,
+        allowWhenMailDeliveryDisabled: Boolean
+    ): Boolean {
+        if (!allowWhenMailDeliveryDisabled && !store.mailDeliveryEnabled) {
+            store.appendLog(action, "跳过，自动发送邮件已关闭")
+            store.appendMailAudit(
+                source = source,
+                event = "skip_mail_disabled",
+                detail = "action=$action"
+            )
+            return true
+        }
         store.appendMailAudit(
             source = source,
             event = "flush_started",

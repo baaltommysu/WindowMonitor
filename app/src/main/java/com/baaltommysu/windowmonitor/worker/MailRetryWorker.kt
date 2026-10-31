@@ -13,6 +13,15 @@ class MailRetryWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val store = PreferenceStore(applicationContext)
+        if (!store.mailDeliveryEnabled) {
+            store.appendMailAudit(
+                source = "workmanager",
+                event = "skip_mail_disabled",
+                detail = "attempt=$runAttemptCount"
+            )
+            WorkScheduler.disablePeriodicMail(applicationContext)
+            return Result.success()
+        }
         store.appendMailAudit(
             source = "workmanager",
             event = "triggered",
